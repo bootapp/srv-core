@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-core
+  namespace: wangh09
+  labels:
+    app: servicecore
+    type: backend-service
+spec:
+  ports:
+  - name: grpc-port
+    port: 9090
+  selector:
+    app: servicecore
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-core2
+  namespace: wangh09
+  labels:
+    app: servicecore
+spec:
+  ports:
+  - name: http-port
+    port: 9090
+  selector:
+    app: servicecore
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: service-core-proc
+  namespace: wangh09
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: servicecore
+    spec:
+      containers:
+      - name: service-core-proc
+        image: bootapp/service-core
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9090
+---
