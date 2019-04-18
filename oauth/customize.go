@@ -20,7 +20,7 @@ func loginHandler(username, password, code, orgId, authType string) (userID, org
 		if err != nil {
 			return 0, 0, nil, err
 		} else if resp.Status != dal_core.UserServiceType_RESP_SUCCESS {
-			return 0, 0, nil, errors.New(resp.Message)
+			return 0, 0, nil, errors.New(resp.Status.String())
 		}
 		return resp.User.Id, resp.User.OrgId, auth.AuthorityEncode([]string{"ORG_AUTH_USER","ORG_AUTH_DEBIT"}, []string{"AUTH_DEBIT_TEST_R","AUTH_USER"}), nil
 

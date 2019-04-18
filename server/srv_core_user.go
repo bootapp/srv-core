@@ -50,26 +50,38 @@ func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *srv.Regist
 		glog.Error(err)
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	if resp.Status != dal_core.UserServiceType_RESP_SUCCESS {
-		return nil, status.Error(codes.InvalidArgument, resp.Message)
+	switch resp.Status {
+	case dal_core.UserServiceType_RESP_SUCCESS:
+		return &srv.Resp{}, nil
+	case dal_core.UserServiceType_NEW_USER_ERR_DUPLICATE_ENTRY:
+		glog.Error("duplicated user")
+		return nil, status.Error(codes.InvalidArgument, srv.UserServiceType_REGISTER_ERR_DUPLICATE_ENTRY.String())
+	default:
+		glog.Error("unexpected error: ", resp.Message)
+		return nil, status.Error(codes.Internal, resp.Message)
 	}
-	return &srv.Resp{}, nil
 }
-func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *srv.LoginReq) (*srv.LoginResp, error) {
+func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *srv.LoginReq) (resp *srv.LoginResp, err error) {
 	glog.Info("user logging in...")
+	resp = &srv.LoginResp{}
 	at, rt, err := s.auth.UserGetAccessToken(req.Type.String(), req.Key, req.Secret, req.Code, req.OrgId)
 	if err != nil {
-		err := status.Error(codes.InvalidArgument, err.Error())
+		switch err.Error() {
+		case dal_core.UserServiceType_QUERY_USER_ERR_WRONG_PASS.String():
+			err = status.Error(codes.InvalidArgument, srv.UserServiceType_LOGIN_ERR_WRONG_PASS.String())
+		default:
+			err = status.Error(codes.InvalidArgument, err.Error())
+		}
 		glog.Error(err)
-		return nil, err
+		return
 	} else if rt == "" || at == "" {
-		err := status.Error(codes.Internal, "unexpected error")
+		err = status.Error(codes.Internal, srv.UserServiceType_ERR_UNEXPECTED.String())
 		glog.Error("unexpected error")
-		return nil, err
+		return
 	} else {
-		glog.Info("injecting tokens to cookie")
+		glog.Info("injecting tokens to cookie...")
 		auth.ResponseTokenInjector(ctx, at, rt)
-		return &srv.LoginResp{}, nil
+		return
 	}
 }
 func (s *SrvCoreUserServiceServer) Activate(context.Context, *srv.Req) (*srv.Resp, error) {
