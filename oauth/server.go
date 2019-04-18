@@ -8,8 +8,11 @@ import (
 	"github.com/bootapp/oauth2/models"
 	"github.com/bootapp/oauth2/server"
 	"github.com/bootapp/oauth2/store"
+	"github.com/bootapp/srv-core/proto/clients/dal-core"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/glog"
+	"google.golang.org/grpc"
+	"log"
 	"time"
 )
 
@@ -20,7 +23,10 @@ type UserPassOAuthServer struct {
 	clientStore *store.ClientStore
 	manager *manage.StatelessManager
 }
-
+var (
+	dalCoreUserClient dal_core.DalCoreUserServiceClient
+	dalCoreUserConn *grpc.ClientConn
+)
 func NewPassOAuthServer() UserPassOAuthServer {
 	s := UserPassOAuthServer{}
 	s.Init()
@@ -64,10 +70,19 @@ func (s *UserPassOAuthServer) Init() {
 	httpHandlers(s)
 }
 
+func (s * UserPassOAuthServer) SetupUserClient(dalCoreUserAddr string) {
+	var err error
+	dalCoreUserConn, err = grpc.Dial(dalCoreUserAddr, grpc.WithInsecure())
+	if err != nil {
+		log.Fatalf("did not connect: %v", err)
+	}
+	dalCoreUserClient = dal_core.NewDalCoreUserServiceClient(dalCoreUserConn)
+}
+
 func (s * UserPassOAuthServer) UpdateClientStore(clients map[string]string) {
 	var err error
 	for key, value := range clients{
-		err = s.clientStore.Set(key, &models.Client{
+		err = s.clientStore.Set(key, &models.Client {
 			ID:     key,
 			Secret: value,
 			Domain: "http://localhost",

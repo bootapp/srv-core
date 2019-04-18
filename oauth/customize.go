@@ -2,20 +2,31 @@
 package oauth
 
 import (
-"encoding/json"
-"github.com/bootapp/rest-grpc-oauth2/auth"
-"github.com/dgrijalva/jwt-go"
-"github.com/golang/glog"
-"net/http"
+	"context"
+	"encoding/json"
+	"errors"
+	"github.com/bootapp/rest-grpc-oauth2/auth"
+	"github.com/bootapp/srv-core/proto/clients/dal-core"
+	"github.com/dgrijalva/jwt-go"
+	"github.com/golang/glog"
+	"net/http"
 )
-func loginHandler(username, password string, code string, orgId string, authType string) (userID int64, orgID int64, authorities map[int64]int64, err error) {
-	switch authType {
-	case "pass":
-	case "phone":
-	case "email":
-		//	return 123,123, auth.AuthorityEncode([]string{"ORG_USER","ORG_DEBIT"}, []string{"AUTH_USER","AUTH_DEBIT_MANAGE"}),nil
-	}
+
+func loginHandler(username, password, code, orgId, authType string) (userID, orgID int64, authorities map[int64]int64, err error) {
 	glog.Info("authenticating user...")
+	switch authType {
+	case "LOGIN_TYPE_USERNAME_PASS":
+		resp, err := dalCoreUserClient.QueryUser(context.Background(), &dal_core.UserInfo{Username: username, Password: password})
+		if err != nil {
+			return 0, 0, nil, err
+		} else if resp.Status != dal_core.UserServiceType_RESP_SUCCESS {
+			return 0, 0, nil, errors.New(resp.Message)
+		}
+		return resp.User.Id, resp.User.OrgId, auth.AuthorityEncode([]string{"ORG_AUTH_USER","ORG_AUTH_DEBIT"}, []string{"AUTH_DEBIT_TEST_R","AUTH_USER"}), nil
+
+	case "LOGIN_TYPE_EMAIL_PASS":
+	case "LOGIN_TYPE_PHONE_PASS":
+	}
 	return 1234, 1234, auth.AuthorityEncode([]string{"ORG_AUTH_USER","ORG_AUTH_DEBIT"}, []string{"AUTH_DEBIT_TEST_R","AUTH_USER"}),nil
 }
 

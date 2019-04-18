@@ -54,6 +54,7 @@ func ApolloConfig(ctx context.Context, cacheOnly bool, rpcSrvAddr *GRpcServiceAd
 	configStr = agollo.Get("grpcServiceAddr.dal.core")
 	rpcSrvAddr.DALCoreUserSrv = configStr
 	authenticator.SetAuthorityEndpoint(configStr)
+	server.SetupUserClient(configStr)
 	err = authenticator.ScheduledFetchAuthorities(ctx)
 	if err != nil {
 		glog.Fatal(err)

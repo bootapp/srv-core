@@ -38,6 +38,7 @@ func (s *SrvCoreUserServiceServer) close() {
 }
 
 func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *srv.RegisterReq) (*srv.Resp, error) {
+	glog.Info("registering new user...")
 	user := &dal_core.UserInfo{}
 	switch req.Type {
 	case srv.UserServiceType_REGISTER_TYPE_USERNAME_PASS:
@@ -54,8 +55,22 @@ func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *srv.Regist
 	}
 	return &srv.Resp{}, nil
 }
-func (s *SrvCoreUserServiceServer) Login(context.Context, *srv.LoginReq) (*srv.Resp, error) {
-	return nil, nil
+func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *srv.LoginReq) (*srv.LoginResp, error) {
+	glog.Info("user logging in...")
+	at, rt, err := s.auth.UserGetAccessToken(req.Type.String(), req.Key, req.Secret, req.Code, req.OrgId)
+	if err != nil {
+		err := status.Error(codes.InvalidArgument, err.Error())
+		glog.Error(err)
+		return nil, err
+	} else if rt == "" || at == "" {
+		err := status.Error(codes.Internal, "unexpected error")
+		glog.Error("unexpected error")
+		return nil, err
+	} else {
+		glog.Info("injecting tokens to cookie")
+		auth.ResponseTokenInjector(ctx, at, rt)
+		return &srv.LoginResp{}, nil
+	}
 }
 func (s *SrvCoreUserServiceServer) Activate(context.Context, *srv.Req) (*srv.Resp, error) {
 	return nil, nil
