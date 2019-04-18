@@ -7,6 +7,8 @@ import (
 	srv "github.com/bootapp/srv-core/proto/server"
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"log"
 )
 
@@ -35,8 +37,22 @@ func (s *SrvCoreUserServiceServer) close() {
 	}
 }
 
-func (s *SrvCoreUserServiceServer) Register(context.Context, *srv.RegisterReq) (*srv.Resp, error) {
-	return nil, nil
+func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *srv.RegisterReq) (*srv.Resp, error) {
+	user := &dal_core.UserInfo{}
+	switch req.Type {
+	case srv.UserServiceType_REGISTER_REQ_TYPE_USERNAME_PASS:
+		user.Username = req.Key
+		user.Password = req.Secret
+	}
+	resp, err := s.dalCoreUserClient.InvokeNewUser(ctx, user)
+	if err != nil {
+		glog.Error(err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if resp.Status != dal_core.UserServiceType_RESP_SUCCESS {
+		return nil, status.Error(codes.InvalidArgument, resp.Message)
+	}
+	return &srv.Resp{}, nil
 }
 func (s *SrvCoreUserServiceServer) Login(context.Context, *srv.LoginReq) (*srv.Resp, error) {
 	return nil, nil
