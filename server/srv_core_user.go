@@ -40,7 +40,7 @@ func (s *SrvCoreUserServiceServer) close() {
 func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *srv.RegisterReq) (*srv.Resp, error) {
 	user := &dal_core.UserInfo{}
 	switch req.Type {
-	case srv.UserServiceType_REGISTER_REQ_TYPE_USERNAME_PASS:
+	case srv.UserServiceType_REGISTER_TYPE_USERNAME_PASS:
 		user.Username = req.Key
 		user.Password = req.Secret
 	}
