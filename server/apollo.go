@@ -32,11 +32,6 @@ func ApolloConfig(ctx context.Context, cacheOnly bool, rpcSrvAddr *GRpcServiceAd
 	if err != nil {
 		panic(err)
 	}
-	if !cacheOnly {
-		return
-	}
-	errorCh := agollo.Start()
-	watchCh := agollo.Watch()
 	//=========== init oauth2 server clients
 	var configStr string
 	var clients map[string] string
@@ -63,6 +58,11 @@ func ApolloConfig(ctx context.Context, cacheOnly bool, rpcSrvAddr *GRpcServiceAd
 	if err != nil {
 		glog.Fatal(err)
 	}
+	if !cacheOnly {
+		return
+	}
+	errorCh := agollo.Start()
+	watchCh := agollo.Watch()
 	//============ listen to user changes
 	go func() {
 		for {
