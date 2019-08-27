@@ -5,8 +5,9 @@ import (
 	"flag"
 	"github.com/bootapp/rest-grpc-oauth2/auth"
 	"github.com/bootapp/srv-core/oauth"
-	pb "github.com/bootapp/srv-core/proto/server"
+	pb "github.com/bootapp/srv-core/proto/core"
 	"github.com/bootapp/srv-core/server"
+	"github.com/bootapp/srv-core/utils"
 	"github.com/golang/glog"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"google.golang.org/grpc"
@@ -37,6 +38,8 @@ func main() {
 	rpcSrv := server.GRpcServiceAddr{}
 	server.ApolloConfig(ctx, false, &rpcSrv, &oauthServer, authenticator)
 
+	utils.InitRedis("localhost:6379", "")
+
 	go func() {
 		glog.Info("oauth server listening...")
 		glog.Fatal(http.ListenAndServe(*oauthEndpoint, nil))
@@ -56,7 +59,9 @@ func grpcRun(ctx context.Context, grpcEndpoint string, addr server.GRpcServiceAd
 	}
 	grpcServer := grpc.NewServer()
 	srvCoreUserSrv := server.NewSrvCoreUserServiceServer(addr.DALCoreUserSrv)
+	srvCoreSecuritySrv := server.NewSecurityServer(addr.DALCoreUserSrv)
 	pb.RegisterSrvCoreUserServiceServer(grpcServer, srvCoreUserSrv)
+	pb.RegisterSrvSecurityServiceServer(grpcServer, srvCoreSecuritySrv)
 	go func() {
 		defer grpcServer.GracefulStop()
 		<-ctx.Done()
@@ -72,7 +77,11 @@ func gwRun(ctx context.Context, httpEndpoint string, grpcEndpoint string) error 
 		runtime.WithForwardResponseOption(auth.GatewayResponseCookieAnnotator),
 		runtime.WithMetadata(auth.GatewayRequestCookieParser))
 	opts := []grpc.DialOption{grpc.WithInsecure()}
-	if err := pb.RegisterSrvCoreUserServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts) ; err != nil {
+	if err := pb.RegisterSrvCoreUserServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+		glog.Fatal("failed to start rest gateway: %v", err)
+		return err
+	}
+	if err := pb.RegisterSrvSecurityServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
 		glog.Fatal("failed to start rest gateway: %v", err)
 		return err
 	}

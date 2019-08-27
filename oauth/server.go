@@ -8,7 +8,7 @@ import (
 	"github.com/bootapp/oauth2/models"
 	"github.com/bootapp/oauth2/server"
 	"github.com/bootapp/oauth2/store"
-	"github.com/bootapp/srv-core/proto/clients/dal-core"
+	"github.com/bootapp/srv-core/proto/core"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
@@ -24,7 +24,7 @@ type UserPassOAuthServer struct {
 	manager *manage.StatelessManager
 }
 var (
-	dalCoreUserClient dal_core.DalCoreUserServiceClient
+	dalCoreUserClient core.DalUserServiceClient
 	dalCoreUserConn *grpc.ClientConn
 )
 func NewPassOAuthServer() UserPassOAuthServer {
@@ -76,7 +76,7 @@ func (s * UserPassOAuthServer) SetupUserClient(dalCoreUserAddr string) {
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
-	dalCoreUserClient = dal_core.NewDalCoreUserServiceClient(dalCoreUserConn)
+	dalCoreUserClient = core.NewDalUserServiceClient(dalCoreUserConn)
 }
 
 func (s * UserPassOAuthServer) UpdateClientStore(clients map[string]string) {

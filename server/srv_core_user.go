@@ -1,19 +1,24 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"github.com/bootapp/rest-grpc-oauth2/auth"
-	"github.com/bootapp/srv-core/proto/clients/dal-core"
-	srv "github.com/bootapp/srv-core/proto/server"
+	"github.com/bootapp/srv-core/proto/core"
+	"github.com/bootapp/srv-core/utils"
 	"github.com/golang/glog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"log"
+	"strconv"
+	"strings"
 )
 
 type SrvCoreUserServiceServer struct {
-	dalCoreUserClient dal_core.DalCoreUserServiceClient
+	dalCoreUserClient core.DalUserServiceClient
 	dalCoreUserConn *grpc.ClientConn
 	auth *auth.StatelessAuthenticator
 }
@@ -25,7 +30,7 @@ func NewSrvCoreUserServiceServer(dalCoreUserAddr string) *SrvCoreUserServiceServ
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
-	s.dalCoreUserClient = dal_core.NewDalCoreUserServiceClient(s.dalCoreUserConn)
+	s.dalCoreUserClient = core.NewDalUserServiceClient(s.dalCoreUserConn)
 	s.auth = auth.GetInstance()
 	return s
 }
@@ -37,56 +42,106 @@ func (s *SrvCoreUserServiceServer) close() {
 	}
 }
 
-func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *srv.RegisterReq) (*srv.Resp, error) {
+func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.RegisterReq) (*core.UserWithOrg, error) {
 	glog.Info("registering new user...")
-	user := &dal_core.UserInfo{}
+	user := &core.User{}
 	switch req.Type {
-	case srv.UserServiceType_REGISTER_TYPE_USERNAME_PASS:
+	case core.RegisterType_REGISTER_TYPE_USERNAME_PASS: // username + password (activated)
 		user.Username = req.Key
 		user.Password = req.Secret
+		user.Status = core.EntityStatus_ENTITY_STATUS_NORMAL
+	case core.RegisterType_REGISTER_TYPE_PHONE_PASS: //phone + password (later activation)
+		user.Phone = req.Key
+		user.Password = req.Secret
+		user.Status = core.EntityStatus_ENTITY_STATUS_INACTIVATED
+	case core.RegisterType_REGISTER_TYPE_PHONE_CODE: //phone + code (activated)
+		err := utils.CheckPhoneCode(core.SmsType_SMS_CODE_REGISTER.String(), req.Key, req.Code)
+		if err != nil {
+			return nil, err
+		}
+		user.Phone = req.Key
+		user.Password = utils.RandString(10)
+		user.Status = core.EntityStatus_ENTITY_STATUS_NORMAL
+	case core.RegisterType_REGISTER_TYPE_EMAIL_PASS: //email + pass (later activation)
+		user.Email = req.Key
+		user.Password = req.Secret
+		user.Status = core.EntityStatus_ENTITY_STATUS_INACTIVATED
+	case core.RegisterType_REGISTER_TYPE_PHONE_PASS_CODE: //phone + pass + code
+		err := utils.CheckPhoneCode(core.SmsType_SMS_CODE_REGISTER.String(), req.Key, req.Code)
+		if err != nil {
+			return nil, err
+		}
+		user.Phone = req.Key
+		user.Password = req.Secret
+		user.Status = core.EntityStatus_ENTITY_STATUS_NORMAL
 	}
-	resp, err := s.dalCoreUserClient.InvokeNewUser(ctx, user)
+	_, err := s.dalCoreUserClient.WriteUser(ctx, user)
 	if err != nil {
 		glog.Error(err)
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, err
 	}
-	switch resp.Status {
-	case dal_core.UserServiceType_RESP_SUCCESS:
-		return &srv.Resp{}, nil
-	case dal_core.UserServiceType_NEW_USER_ERR_DUPLICATE_ENTRY:
-		glog.Error("duplicated user")
-		return nil, status.Error(codes.InvalidArgument, srv.UserServiceType_REGISTER_ERR_DUPLICATE_ENTRY.String())
-	default:
-		glog.Error("unexpected error: ", resp.Message)
-		return nil, status.Error(codes.Internal, resp.Message)
-	}
+
+	return &core.UserWithOrg{}, nil
 }
-func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *srv.LoginReq) (resp *srv.LoginResp, err error) {
+func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *core.LoginReq) (*core.UserWithOrg, error) {
 	glog.Info("user logging in...")
-	resp = &srv.LoginResp{}
 	at, rt, err := s.auth.UserGetAccessToken(req.Type.String(), req.Key, req.Secret, req.Code, req.OrgId)
 	if err != nil {
-		switch err.Error() {
-		case dal_core.UserServiceType_QUERY_USER_ERR_WRONG_PASS.String():
-			err = status.Error(codes.InvalidArgument, srv.UserServiceType_LOGIN_ERR_WRONG_PASS.String())
-		default:
-			err = status.Error(codes.InvalidArgument, err.Error())
-		}
 		glog.Error(err)
-		return
+		return nil, err
 	} else if rt == "" || at == "" {
-		err = status.Error(codes.Internal, srv.UserServiceType_ERR_UNEXPECTED.String())
 		glog.Error("unexpected error")
-		return
+		return nil, status.Error(codes.Internal, "unexpected error when getting access token.")
 	} else {
 		glog.Info("injecting tokens to cookie...")
 		auth.ResponseTokenInjector(ctx, at, rt)
-		return
 	}
+	tokenInfo := strings.Split(at, ".")
+	res , err := base64.RawStdEncoding.DecodeString(tokenInfo[1])
+	if err != nil {
+		glog.Error(err)
+		return nil, err
+	}
+
+	var personFromJSON interface{}
+
+	decoder := json.NewDecoder(bytes.NewReader(res))
+	decoder.UseNumber()
+	err = decoder.Decode(&personFromJSON)
+	if err != nil {
+		glog.Error(err)
+		return nil, err
+	}
+	r := personFromJSON.(map[string]interface{})
+	userId, err := r["user_id"].(json.Number).Int64()
+	if err != nil {
+		glog.Error(err)
+		return nil, err
+	}
+	orgIdNum, err := strconv.ParseInt(req.OrgId, 10, 64)
+	if err != nil {
+		orgIdNum = 0
+	}
+	qResp, err := s.dalCoreUserClient.ReadUser(ctx, &core.User{Id: userId, OrgId:orgIdNum})
+	if err != nil {
+		glog.Error(err)
+		return nil, err
+	}
+	return qResp, nil
 }
-func (s *SrvCoreUserServiceServer) Activate(context.Context, *srv.Req) (*srv.Resp, error) {
-	return nil, nil
+
+func (s *SrvCoreUserServiceServer) Activate(context.Context, *core.Empty) (*core.Empty, error) {
+	panic("implement me")
 }
-func (s *SrvCoreUserServiceServer) UserInfo(context.Context, *srv.Req) (*srv.Resp, error) {
-	return nil, nil
+
+func (s *SrvCoreUserServiceServer) UserInfo(context.Context, *core.Empty) (*core.Empty, error) {
+	panic("implement me")
+}
+
+func (s *SrvCoreUserServiceServer) UpdateUser(context.Context, *core.Empty) (*core.Empty, error) {
+	panic("implement me")
+}
+
+func (s *SrvCoreUserServiceServer) ResetPassword(context.Context, *core.Empty) (*core.Empty, error) {
+	panic("implement me")
 }

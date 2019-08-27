@@ -4,44 +4,102 @@ package oauth
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"github.com/bootapp/rest-grpc-oauth2/auth"
-	"github.com/bootapp/srv-core/proto/clients/dal-core"
+	"github.com/bootapp/srv-core/proto/core"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/glog"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
 )
 
-func loginHandler(username, password, code, orgId, authType string) (userID, orgID int64, authorities map[int64]int64, err error) {
+var orgNameRegex *regexp.Regexp
+
+func procQueryUserResp(resp *core.UserWithOrg) (userID int64, orgID int64, authorities map[int64]int64, err error) {
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	if resp.User == nil || len(resp.OrgInfo) == 0 {
+		return 0, 0, nil, status.Error(codes.Internal, "error implementation of queryUser")
+	}
+	if len(resp.OrgInfo) > 1 {
+		result := ""
+		for idx, orgInfo := range resp.OrgInfo {
+			if idx == 0 {
+				result += strconv.FormatInt(orgInfo.Id, 10) + ":"+ orgNameRegex.ReplaceAllString(orgInfo.Name, "")
+			} else {
+				result += "|" + strconv.FormatInt(orgInfo.Id, 10) + ":"+ orgNameRegex.ReplaceAllString(orgInfo.Name, "")
+			}
+		}
+		return 0, 0, nil, status.Error(codes.FailedPrecondition, result)
+	} else {
+		return resp.User.Id, resp.OrgInfo[0].Id, auth.AuthorityEncode(strings.Split(resp.OrgInfo[0].AuthorityGroups, ";"), strings.Split(resp.OrgInfo[0].Authorities, ";")), nil
+	}
+
+}
+func loginHandler(username, password, code, orgId, authType string) (userID int64, orgID int64, authorities map[int64]int64, err error) {
 	glog.Info("authenticating user...")
+	orgIdNum, err := strconv.ParseInt(orgId, 10, 64)
+	if err != nil {
+		orgIdNum = 0
+	}
 	switch authType {
 	case "LOGIN_TYPE_USERNAME_PASS":
-		resp, err := dalCoreUserClient.QueryUser(context.Background(), &dal_core.UserInfo{Username: username, Password: password})
+		resp, err := dalCoreUserClient.ReadUser(context.Background(), &core.User{Username: username, Password: password, OrgId:orgIdNum})
 		if err != nil {
 			return 0, 0, nil, err
-		} else if resp.Status != dal_core.UserServiceType_RESP_SUCCESS {
-			return 0, 0, nil, errors.New(resp.Status.String())
 		}
-		return resp.User.Id, resp.User.OrgId, auth.AuthorityEncode([]string{"ORG_AUTH_USER","ORG_AUTH_DEBIT"}, []string{"AUTH_DEBIT_TEST_R","AUTH_USER"}), nil
-
+		return procQueryUserResp(resp)
 	case "LOGIN_TYPE_EMAIL_PASS":
+		resp, err := dalCoreUserClient.ReadUser(context.Background(), &core.User{Email: username, Password: password, OrgId:orgIdNum})
+		if err != nil {
+			return 0, 0, nil, err
+		}
+		return procQueryUserResp(resp)
 	case "LOGIN_TYPE_PHONE_PASS":
+		resp, err := dalCoreUserClient.ReadUser(context.Background(), &core.User{Phone: username, Password: password, OrgId:orgIdNum})
+		if err != nil {
+			return 0, 0, nil, err
+		}
+		return procQueryUserResp(resp)
+	case "LOGIN_TYPE_ANY_PASS":
+		resp, err := dalCoreUserClient.ReadUser(context.Background(),
+			&core.User{Phone: username, Email: username, Username:username, Password: password, OrgId:orgIdNum})
+		if err != nil {
+			return 0, 0, nil, err
+		}
+		return procQueryUserResp(resp)
+	case "LOGIN_TYPE_PHONE_CODE":
+		return 0, 0, nil, status.Error(codes.Unimplemented, "not implemented yet")
+	case "LOGIN_TYPE_PHONE_LOGIN_OR_REG":
+		return 0, 0, nil, status.Error(codes.Unimplemented, "not implemented yet")
 	}
-	return 1234, 1234, auth.AuthorityEncode([]string{"ORG_AUTH_USER","ORG_AUTH_DEBIT"}, []string{"AUTH_DEBIT_TEST_R","AUTH_USER"}),nil
+
+	return 0, 0, nil, status.Error(codes.Unimplemented, "not implemented yet")
 }
 
 func httpHandlers(server *UserPassOAuthServer) {
+	orgNameRegex, _ = regexp.Compile("[|:]+")
 	http.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
 		err := server.Srv.HandleAuthorizeRequest(w, r)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			stat := status.Convert(err)
+			http.Error(w, stat.Message(), http.StatusBadRequest)
 		}
 	})
 
 	http.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		err := server.Srv.HandleTokenRequest(w, r)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			stat := status.Convert(err)
+			if stat.Code() == codes.FailedPrecondition {
+				http.Error(w, stat.Message(), http.StatusMultipleChoices)
+			} else {
+				http.Error(w, stat.Message(), http.StatusBadRequest)
+			}
 		}
 	})
 
@@ -50,14 +108,14 @@ func httpHandlers(server *UserPassOAuthServer) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Pragma", "no-cache")
 
-		status := http.StatusOK
-		w.WriteHeader(status)
+		w.WriteHeader(http.StatusOK)
 		resp := make(map[string] string)
 		resp["alg"] = jwt.SigningMethodRS256.Name
 		resp["value"] = string(server.GetPublicKey())
 		err := json.NewEncoder(w).Encode(resp)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			stat := status.Convert(err)
+			http.Error(w, stat.Message(), http.StatusBadRequest)
 		}
 	})
 }
