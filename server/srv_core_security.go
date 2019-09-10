@@ -42,30 +42,35 @@ func NewSecurityServer(dalCoreUserAddr string) *SrvCoreSecurityServiceServer {
 }
 
 func (s *SrvCoreSecurityServiceServer) SendPhoneCode(ctx context.Context, req *core.SmsReq) (*core.Empty, error) {
-	phoneReq := &core.UserPhoneReq{}
-	phoneReq.Phone = req.Phone
-	phoneExists := true
-	_, err := s.dalCoreUserClient.CheckPhoneExists(ctx, phoneReq)
+	userReq := &core.User{}
+	userReq.Phone = req.Phone
+	phoneExists := false
+	_, err := s.dalCoreUserClient.VerifyUniqueUser(ctx, userReq)
 	if err != nil {
-		if status.Convert(err).Code() == codes.NotFound {
-			phoneExists = false
+		if status.Convert(err).Code() == codes.AlreadyExists {
+			phoneExists = true
 		} else {
 			glog.Error(err)
 			return nil, err
 		}
 	}
 	if req.Lang != core.SmsType_SMS_LANG_CN {
-		return nil, status.Error(codes.InvalidArgument, "wrong lang key")
+		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:lang")
 	}
 	if req.Type != core.SmsType_SMS_CODE_LOGIN && req.Type != core.SmsType_SMS_CODE_RESET_PASS && req.Type != core.SmsType_SMS_CODE_REGISTER {
-		return nil, status.Error(codes.InvalidArgument, "wrong type")
+		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:type")
 	}
 	if (req.Type == core.SmsType_SMS_CODE_LOGIN || req.Type == core.SmsType_SMS_CODE_RESET_PASS) && !phoneExists {
-		return nil, status.Error(codes.NotFound, "phone not found")
+		return nil, status.Error(codes.NotFound, "NON_EXISTS")
 	} else if req.Type == core.SmsType_SMS_CODE_REGISTER && phoneExists {
-		return nil, status.Error(codes.AlreadyExists, "already registered")
+		return nil, status.Error(codes.AlreadyExists, "ALREADY_EXISTS")
 	}
 	text := utils.GenCode(6)
+
+	err = utils.SetKey(req.Type.String() + req.Phone, text, 5 * time.Minute)
+	if err != nil {
+		return nil, err
+	}
 
 	request := requests.NewCommonRequest()
 	request.Method = "POST"
@@ -75,7 +80,7 @@ func (s *SrvCoreSecurityServiceServer) SendPhoneCode(ctx context.Context, req *c
 	request.ApiName = "SendSms"
 	request.QueryParams["RegionId"] = "cn-hangzhou"
 	if !strings.Contains(req.Phone, "-") {
-		return nil, status.Error(codes.InvalidArgument, "wrong phone format")
+		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:phone")
 	}
 	request.QueryParams["PhoneNumbers"] = strings.Split(req.Phone, "-")[1]
 	request.QueryParams["SignName"] = "易HS"
@@ -102,24 +107,19 @@ func (s *SrvCoreSecurityServiceServer) SendPhoneCode(ctx context.Context, req *c
 		return nil, status.Error(codes.InvalidArgument, jsonObj["Message"].(string))
 	}
 
-	err = utils.SetKey(req.Type.String() + req.Phone, text, 5 * time.Minute)
-	if err != nil {
-		return nil, err
-	}
-
 	return &core.Empty{}, nil
 }
 
 func (s *SrvCoreSecurityServiceServer) VerifyPhoneCode(ctx context.Context, req *core.SmsVerifyReq) (*core.Empty, error) {
 	if req.Type != core.SmsType_SMS_CODE_LOGIN && req.Type != core.SmsType_SMS_CODE_RESET_PASS && req.Type != core.SmsType_SMS_CODE_REGISTER {
-		return nil, status.Error(codes.InvalidArgument, "wrong type")
+		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:type")
 	}
 	val, err := utils.GetKey(req.Type.String() + req.Phone)
 	if err != nil {
 		return nil, err
 	}
 	if val != req.Code {
-		return nil, status.Error(codes.InvalidArgument, "wrong key")
+		return nil, status.Error(codes.InvalidArgument, "INVALID_CODE")
 	}
 	return &core.Empty{}, nil
 }

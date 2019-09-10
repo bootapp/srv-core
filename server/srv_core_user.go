@@ -75,7 +75,7 @@ func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.Regis
 		user.Password = req.Secret
 		user.Status = core.EntityStatus_ENTITY_STATUS_NORMAL
 	}
-	_, err := s.dalCoreUserClient.WriteUser(ctx, user)
+	_, err := s.dalCoreUserClient.CreateUser(ctx, user)
 	if err != nil {
 		glog.Error(err)
 		return nil, err
@@ -91,7 +91,7 @@ func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *core.LoginReq
 		return nil, err
 	} else if rt == "" || at == "" {
 		glog.Error("unexpected error")
-		return nil, status.Error(codes.Internal, "unexpected error when getting access token.")
+		return nil, status.Error(codes.Internal, "INTERNAL:unexpected error when getting access token.")
 	} else {
 		glog.Info("injecting tokens to cookie...")
 		auth.ResponseTokenInjector(ctx, at, rt)
@@ -130,6 +130,27 @@ func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *core.LoginReq
 	return qResp, nil
 }
 
+func (s *SrvCoreUserServiceServer) ResetPassword(ctx context.Context, req *core.ResetPasswordReq) (*core.Empty, error) {
+	updateUserReq := &core.UpdateUserReq{}
+	switch req.Type {
+	case core.ResetPasswordType_RESET_PASS_TYPE_PHONE_CODE:
+		val, err := utils.GetKey(core.SmsType_SMS_CODE_RESET_PASS.String() + req.Key)
+		if err != nil {
+			return nil, err
+		}
+		if val != req.Code {
+			return nil, status.Error(codes.InvalidArgument, "INVALID_CODE")
+		}
+		updateUserReq.Type = core.UpdateUserType_UPDATE_USER_TYPE_PHONE
+		updateUserReq.User = &core.User{Phone:req.Key, Password:req.Secret}
+	}
+	_, err := s.dalCoreUserClient.UpdateUser(ctx, updateUserReq)
+	if err != nil {
+		return nil, err
+	}
+	return &core.Empty{}, nil
+}
+
 func (s *SrvCoreUserServiceServer) Activate(context.Context, *core.Empty) (*core.Empty, error) {
 	panic("implement me")
 }
@@ -139,9 +160,5 @@ func (s *SrvCoreUserServiceServer) UserInfo(context.Context, *core.Empty) (*core
 }
 
 func (s *SrvCoreUserServiceServer) UpdateUser(context.Context, *core.Empty) (*core.Empty, error) {
-	panic("implement me")
-}
-
-func (s *SrvCoreUserServiceServer) ResetPassword(context.Context, *core.Empty) (*core.Empty, error) {
 	panic("implement me")
 }

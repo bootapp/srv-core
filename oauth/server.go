@@ -26,11 +26,15 @@ type UserPassOAuthServer struct {
 var (
 	dalCoreUserClient core.DalUserServiceClient
 	dalCoreUserConn *grpc.ClientConn
+	oauthServer *UserPassOAuthServer
 )
-func NewPassOAuthServer() UserPassOAuthServer {
-	s := UserPassOAuthServer{}
-	s.Init()
-	return s
+func NewPassOAuthServer() *UserPassOAuthServer {
+	if oauthServer != nil {
+		return oauthServer
+	}
+	oauthServer = &UserPassOAuthServer{}
+	oauthServer.Init()
+	return oauthServer
 }
 func (s *UserPassOAuthServer) Init() {
 	s.manager = manage.NewStatelessManager()
@@ -67,7 +71,6 @@ func (s *UserPassOAuthServer) Init() {
 	})
 
 	s.Srv.SetPasswordAuthorizationHandler(loginHandler)
-	httpHandlers(s)
 }
 
 func (s * UserPassOAuthServer) SetupUserClient(dalCoreUserAddr string) {

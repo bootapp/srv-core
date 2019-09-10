@@ -15,20 +15,20 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 )
 
 var (
-	grpcEndpoint = flag.String("grpc_endpoint", ":9092", "The endpoint of the core grpc service")
-	httpEndpoint = flag.String("http_endpoint", ":8092", "The endpoint of the core restful service")
-	oauthEndpoint = flag.String("oauth_endpoint", ":9081", "The endpoint of the oauth server")
+	grpcEndpoint = flag.String("grpc_endpoint", ":9090", "The endpoint of the core grpc service")
+	httpEndpoint = flag.String("http_endpoint", ":8090", "The endpoint of the core restful service")
 )
 
 func main() {
 	_ = flag.Set("alsologtostderr", "true")
 	flag.Parse()
 	defer glog.Flush()
-	ctx := context.Background()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	//====== initialize auth client
 	authenticator :=auth.GetInstance()
@@ -36,15 +36,9 @@ func main() {
 	oauthServer := oauth.NewPassOAuthServer()
 	//====== read configs and listen changes from apollo
 	rpcSrv := server.GRpcServiceAddr{}
-	server.ApolloConfig(ctx, false, &rpcSrv, &oauthServer, authenticator)
-
-	utils.InitRedis("localhost:6379", "")
-
-	go func() {
-		glog.Info("oauth server listening...")
-		glog.Fatal(http.ListenAndServe(*oauthEndpoint, nil))
-		glog.Info("oauth server stopped.")
-	}()
+	server.ApolloConfig(ctx, false, &rpcSrv, oauthServer, authenticator)
+	// "redis://:qwerty@localhost:6379/1"
+	utils.InitRedis("redis://localhost:6379/0")
 	go func() {
 		defer cancel()
 		_ = gwRun(ctx, *httpEndpoint, *grpcEndpoint)
@@ -71,6 +65,17 @@ func grpcRun(ctx context.Context, grpcEndpoint string, addr server.GRpcServiceAd
 	return grpcServer.Serve(l)
 }
 
+func routedGatewayHandler(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.RequestURI, "/api") {
+			oauth.ServeOAuthHTTP(w, r)
+		} else if strings.HasPrefix(r.RequestURI, "/rpc") {
+			h.ServeHTTP(w, r)
+		} else {
+			http.Error(w, "Not Found", http.StatusNotFound)
+		}
+	})
+}
 func gwRun(ctx context.Context, httpEndpoint string, grpcEndpoint string) error {
 	//ctx, cancel := context.WithCancel(context.Background())
 	mux := runtime.NewServeMux(
@@ -87,7 +92,7 @@ func gwRun(ctx context.Context, httpEndpoint string, grpcEndpoint string) error 
 	}
 	srv := &http.Server {
 		Addr:    httpEndpoint,
-		Handler: mux,
+		Handler: routedGatewayHandler(mux),
 	}
 	// graceful shutdown
 	c := make(chan os.Signal, 1)

@@ -23,7 +23,7 @@ func procQueryUserResp(resp *core.UserWithOrg) (userID int64, orgID int64, autho
 		return 0, 0, nil, err
 	}
 	if resp.User == nil || len(resp.OrgInfo) == 0 {
-		return 0, 0, nil, status.Error(codes.Internal, "error implementation of queryUser")
+		return 0, 0, nil, status.Error(codes.Internal, "INTERNAL:error implementation of queryUser")
 	}
 	if len(resp.OrgInfo) > 1 {
 		result := ""
@@ -73,26 +73,25 @@ func loginHandler(username, password, code, orgId, authType string) (userID int6
 		}
 		return procQueryUserResp(resp)
 	case "LOGIN_TYPE_PHONE_CODE":
-		return 0, 0, nil, status.Error(codes.Unimplemented, "not implemented yet")
+		return 0, 0, nil, status.Error(codes.Unimplemented, "INTERNAL:not implemented yet")
 	case "LOGIN_TYPE_PHONE_LOGIN_OR_REG":
-		return 0, 0, nil, status.Error(codes.Unimplemented, "not implemented yet")
+		return 0, 0, nil, status.Error(codes.Unimplemented, "INTERNAL:not implemented yet")
 	}
 
-	return 0, 0, nil, status.Error(codes.Unimplemented, "not implemented yet")
+	return 0, 0, nil, status.Error(codes.Unimplemented, "INTERNAL:not implemented yet")
 }
 
-func httpHandlers(server *UserPassOAuthServer) {
-	orgNameRegex, _ = regexp.Compile("[|:]+")
-	http.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
-		err := server.Srv.HandleAuthorizeRequest(w, r)
+
+func ServeOAuthHTTP(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/api/oauth/authorize":
+		err := oauthServer.Srv.HandleAuthorizeRequest(w, r)
 		if err != nil {
 			stat := status.Convert(err)
 			http.Error(w, stat.Message(), http.StatusBadRequest)
 		}
-	})
-
-	http.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-		err := server.Srv.HandleTokenRequest(w, r)
+	case "/api/oauth/token":
+		err := oauthServer.Srv.HandleTokenRequest(w, r)
 		if err != nil {
 			stat := status.Convert(err)
 			if stat.Code() == codes.FailedPrecondition {
@@ -101,9 +100,7 @@ func httpHandlers(server *UserPassOAuthServer) {
 				http.Error(w, stat.Message(), http.StatusBadRequest)
 			}
 		}
-	})
-
-	http.HandleFunc("/token_key", func(w http.ResponseWriter, r *http.Request) {
+	case "/api/oauth/token_key":
 		w.Header().Set("Content-Type", "application/json;charset=UTF-8")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Pragma", "no-cache")
@@ -111,11 +108,12 @@ func httpHandlers(server *UserPassOAuthServer) {
 		w.WriteHeader(http.StatusOK)
 		resp := make(map[string] string)
 		resp["alg"] = jwt.SigningMethodRS256.Name
-		resp["value"] = string(server.GetPublicKey())
+		resp["value"] = string(oauthServer.GetPublicKey())
 		err := json.NewEncoder(w).Encode(resp)
 		if err != nil {
 			stat := status.Convert(err)
 			http.Error(w, stat.Message(), http.StatusBadRequest)
 		}
-	})
+	}
+
 }

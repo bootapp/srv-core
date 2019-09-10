@@ -12,13 +12,12 @@ import (
 var redisClient *redis.Client
 var replaceReg *regexp.Regexp
 
-func InitRedis(redisAddr, redisPass string) {
-	redisClient = redis.NewClient(&redis.Options {
-		Addr:     redisAddr,
-		Password: redisPass, // no password set
-		DB:       0,  // use default DB
-	})
-	var err error
+func InitRedis(redisAddr string) {
+	opt, err := redis.ParseURL(redisAddr)
+	if err != nil {
+		panic(err)
+	}
+	redisClient = redis.NewClient(opt)
 	replaceReg, err = regexp.Compile("[-+]+")
 	if err != nil {
 		log.Fatalf("phone regex creation error: %v", err)
@@ -28,7 +27,7 @@ func SetKey(key, value string, duration time.Duration) error {
 	key = replaceReg.ReplaceAllString(key, "")
 	err := redisClient.Set(key, value, duration).Err()
 	if err != nil {
-		return status.Error(codes.Internal, "redis error")
+		return status.Error(codes.Internal, "INTERNAL:REDIS_ERROR")
 	}
 	return nil
 }
@@ -37,9 +36,9 @@ func GetKey(key string) (val string, err error) {
 	val, err = redisClient.Get(key).Result()
 	if err != nil {
 		if err == redis.Nil {
-			return "", status.Error(codes.InvalidArgument, "code not exists")
+			return "", status.Error(codes.InvalidArgument, "NON_EXISTS")
 		}
-		return "", status.Error(codes.Internal, "redis error")
+		return "", status.Error(codes.Internal, "INTERNAL:REDIS_ERROR")
 	}
 	return val, nil
 }
@@ -51,7 +50,7 @@ func CheckPhoneCode(codeType, phone, code string) error {
 		return err
 	}
 	if val != code {
-		return status.Error(codes.InvalidArgument, "wrong phone code")
+		return status.Error(codes.InvalidArgument, "INVALID_CODE")
 	}
 	return nil
 }
