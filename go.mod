@@ -3,7 +3,7 @@ module github.com/bootapp/srv-core
 require (
 	github.com/aliyun/alibaba-cloud-sdk-go v0.0.0-20190829062648-33b2cd676e57
 	github.com/bootapp/oauth2 v0.0.0-20190418114711-8209c3fa04f8
-	github.com/bootapp/rest-grpc-oauth2 v0.0.4
+	github.com/bootapp/rest-grpc-oauth2 v0.1.0
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/fasthttp-contrib/websocket v0.0.0-20160511215533-1f3b11f56072 // indirect
 	github.com/gavv/httpexpect v2.0.0+incompatible // indirect
