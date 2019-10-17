@@ -1,6 +1,9 @@
 package oauth
 
 import (
+	"crypto"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rsa"
 	"github.com/bootapp/oauth2/errors"
 	"github.com/bootapp/oauth2/generates"
@@ -11,6 +14,7 @@ import (
 	"github.com/bootapp/srv-core/proto/core"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/glog"
+	_ "golang.org/x/crypto/sha3"
 	"google.golang.org/grpc"
 	"log"
 	"time"
@@ -22,6 +26,11 @@ type UserPassOAuthServer struct {
 	Srv *server.Server
 	clientStore *store.ClientStore
 	manager *manage.StatelessManager
+	Hash crypto.Hash
+	aesKey []byte
+	aesCipher cipher.Block
+	aesEncrypt cipher.BlockMode
+	aesDecrypt cipher.BlockMode
 }
 var (
 	dalCoreUserClient core.DalUserServiceClient
@@ -71,8 +80,25 @@ func (s *UserPassOAuthServer) Init() {
 	})
 
 	s.Srv.SetPasswordAuthorizationHandler(loginHandler)
+
+	s.Hash = crypto.SHA3_256
+
+	s.aesKey = []byte("e92823uaybd2fsfz")
+
+	var err error
+	s.aesCipher, err = aes.NewCipher(s.aesKey)
+	if err != nil {
+		panic(err)
+	}
+
+	s.aesEncrypt = cipher.NewCBCEncrypter(s.aesCipher, s.aesKey)
+	s.aesDecrypt = cipher.NewCBCDecrypter(s.aesCipher, s.aesKey)
+
 }
 
+func GetOauthServer() *UserPassOAuthServer {
+	return oauthServer
+}
 func (s * UserPassOAuthServer) SetupUserClient(dalCoreUserAddr string) {
 	var err error
 	dalCoreUserConn, err = grpc.Dial(dalCoreUserAddr, grpc.WithInsecure())
@@ -105,7 +131,6 @@ func (s *UserPassOAuthServer) SetRSAKeyFromPem(pem []byte) {
 	s.pubKey = &s.privKey.PublicKey
 	s.manager.MapAccessGenerate(generates.NewJWTAccessGenerate(pem, jwt.SigningMethodRS256))
 }
-
 func (s *UserPassOAuthServer) GetPublicKey() []byte {
 	pubKey, err:= EncodePublicKey(s.pubKey)
 	if err != nil {

@@ -5,24 +5,38 @@ import (
 	"encoding/json"
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk"
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/requests"
+	"github.com/bootapp/srv-core/oauth"
 	"github.com/bootapp/srv-core/proto/core"
 	"github.com/bootapp/srv-core/utils"
 	"github.com/golang/glog"
+	"github.com/golang/protobuf/ptypes/wrappers"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gopkg.in/gomail.v2"
 	"log"
 	"strings"
 	"time"
 )
 
+type EmailParam struct {
+	ServerHost string
+	ServerPort int
+	ServerMail string
+	ServerPassword string
+	FromEmail string
+	FromName string
+}
+
 type SrvCoreSecurityServiceServer struct {
 	dalCoreUserClient core.DalUserServiceClient
 	dalCoreUserConn *grpc.ClientConn
 	aliClient *sdk.Client
+	oauthServer *oauth.UserPassOAuthServer
+	emailParam *EmailParam
 }
 
-func NewSecurityServer(dalCoreUserAddr string) *SrvCoreSecurityServiceServer {
+func NewSecurityServer(dalCoreUserAddr string, emailParam *EmailParam) *SrvCoreSecurityServiceServer {
 	s := &SrvCoreSecurityServiceServer{}
 	var err error
 	s.aliClient, err = sdk.NewClientWithAccessKey("cn-hangzhou", "", "")
@@ -38,12 +52,34 @@ func NewSecurityServer(dalCoreUserAddr string) *SrvCoreSecurityServiceServer {
 	if err != nil {
 		log.Fatalf("phone regex creation error: %v", err)
 	}
+	s.emailParam = emailParam
+	s.oauthServer = oauth.GetOauthServer()
 	return s
 }
-
+func (s *SrvCoreSecurityServiceServer) Cipher(ctx context.Context, req *core.CipherReq) (*core.CipherResp, error) {
+	if s.oauthServer == nil {
+		s.oauthServer = oauth.GetOauthServer()
+	}
+	resp := &core.CipherResp{}
+	var err error
+	switch req.Type {
+	case core.CipherType_CIPHER_TYPE_AES_ENCRYPT:
+		resp.Data = s.oauthServer.AESEncrypt(req.Data)
+	case core.CipherType_CIPHER_TYPE_AES_DECRYPT:
+		resp.Data = s.oauthServer.AESDecrypt(req.Data)
+	case core.CipherType_CIPHER_TYPE_RS256_SIGN:
+		resp.Sig, err = s.oauthServer.RS256Sign(req.Data)
+		if err != nil {
+			return nil, err
+		}
+	case core.CipherType_CIPHER_TYPE_RS256_VERIFY:
+		resp.Valid = s.oauthServer.RS256Verify(req.Data, req.Sig)
+	}
+	return resp, nil
+}
 func (s *SrvCoreSecurityServiceServer) SendPhoneCode(ctx context.Context, req *core.SmsReq) (*core.Empty, error) {
 	userReq := &core.User{}
-	userReq.Phone = req.Phone
+	userReq.Phone = &wrappers.StringValue{Value:req.Phone}
 	phoneExists := false
 	_, err := s.dalCoreUserClient.VerifyUniqueUser(ctx, userReq)
 	if err != nil {
@@ -54,7 +90,7 @@ func (s *SrvCoreSecurityServiceServer) SendPhoneCode(ctx context.Context, req *c
 			return nil, err
 		}
 	}
-	if req.Lang != core.SmsType_SMS_LANG_CN {
+	if req.Lang != core.Language_LANG_ZH_CN {
 		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:lang")
 	}
 	if req.Type != core.SmsType_SMS_CODE_LOGIN && req.Type != core.SmsType_SMS_CODE_RESET_PASS && req.Type != core.SmsType_SMS_CODE_REGISTER {
@@ -122,4 +158,27 @@ func (s *SrvCoreSecurityServiceServer) VerifyPhoneCode(ctx context.Context, req 
 		return nil, status.Error(codes.InvalidArgument, "INVALID_CODE")
 	}
 	return &core.Empty{}, nil
+}
+
+func (s *SrvCoreSecurityServiceServer) SendEmail(ctx context.Context, req *core.SendEmailReq) (*core.Empty, error) {
+	m := gomail.NewMessage()
+	m.SetHeader("To", req.Email)
+	m.SetAddressHeader("From", s.emailParam.FromEmail, s.emailParam.FromName)
+	d:= gomail.NewDialer(s.emailParam.ServerHost, s.emailParam.ServerPort, s.emailParam.ServerMail, s.emailParam.ServerPassword)
+
+	switch req.Type {
+	default: // plain
+		m.SetHeader("Subject", req.Subject)
+		m.SetBody("text/html", req.Content)
+	}
+
+	err := d.DialAndSend(m)
+	if err != nil {
+		return nil, err
+	}
+	return &core.Empty{}, nil
+}
+
+func (s *SrvCoreSecurityServiceServer) VerifyEmailCode(context.Context, *core.VerifyEmailCodeReq) (*core.Empty, error) {
+	panic("implement me")
 }

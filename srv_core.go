@@ -38,7 +38,7 @@ func main() {
 	rpcSrv := server.GRpcServiceAddr{}
 	server.ApolloConfig(ctx, false, &rpcSrv, oauthServer, authenticator)
 	// "redis://:qwerty@localhost:6379/1"
-	utils.InitRedis("redis://localhost:6379/0")
+	utils.InitRedis("redis://bootapp.local:6379/0")
 	go func() {
 		defer cancel()
 		_ = gwRun(ctx, *httpEndpoint, *grpcEndpoint)
@@ -53,7 +53,14 @@ func grpcRun(ctx context.Context, grpcEndpoint string, addr server.GRpcServiceAd
 	}
 	grpcServer := grpc.NewServer()
 	srvCoreUserSrv := server.NewSrvCoreUserServiceServer(addr.DALCoreUserSrv)
-	srvCoreSecuritySrv := server.NewSecurityServer(addr.DALCoreUserSrv)
+	srvCoreSecuritySrv := server.NewSecurityServer(addr.DALCoreUserSrv, &server.EmailParam{
+		ServerHost: "smtp.126.com",
+		ServerPort: 465,
+		ServerMail: "",
+		ServerPassword: "",
+		FromEmail: "",
+		FromName: "测试",
+	})
 	pb.RegisterSrvCoreUserServiceServer(grpcServer, srvCoreUserSrv)
 	pb.RegisterSrvSecurityServiceServer(grpcServer, srvCoreSecuritySrv)
 	go func() {

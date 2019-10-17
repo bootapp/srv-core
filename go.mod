@@ -3,7 +3,7 @@ module github.com/bootapp/srv-core
 require (
 	github.com/aliyun/alibaba-cloud-sdk-go v0.0.0-20190829062648-33b2cd676e57
 	github.com/bootapp/oauth2 v0.0.0-20190418114711-8209c3fa04f8
-	github.com/bootapp/rest-grpc-oauth2 v0.1.0
+	github.com/bootapp/rest-grpc-oauth2 v0.1.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/fasthttp-contrib/websocket v0.0.0-20160511215533-1f3b11f56072 // indirect
 	github.com/gavv/httpexpect v2.0.0+incompatible // indirect
@@ -15,7 +15,10 @@ require (
 	github.com/onsi/gomega v1.7.0 // indirect
 	github.com/shima-park/agollo v1.1.0
 	github.com/tidwall/buntdb v1.1.0 // indirect
+	golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2
 	golang.org/x/net v0.0.0-20190827160401-ba9fcec4b297
 	google.golang.org/genproto v0.0.0-20190819201941-24fa4b261c55
 	google.golang.org/grpc v1.23.0
+	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
+	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df
 )

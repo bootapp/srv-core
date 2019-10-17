@@ -9,6 +9,7 @@ import (
 	"github.com/bootapp/srv-core/proto/core"
 	"github.com/bootapp/srv-core/utils"
 	"github.com/golang/glog"
+	"github.com/golang/protobuf/ptypes/wrappers"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -23,11 +24,32 @@ type SrvCoreUserServiceServer struct {
 	auth *auth.StatelessAuthenticator
 }
 
+func (s *SrvCoreUserServiceServer) QueryUsers(ctx context.Context, req *core.QueryUsersReq) (*core.UsersResp, error) {
+	if req.User == nil {
+		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:user")
+	}
+	userId, orgId := s.auth.GetAuthInfo(ctx)
+	if orgId != req.User.OrgId {
+		return nil, status.Error(codes.PermissionDenied, "PERMISSION_DENIED")
+	}
+	usersReq := &core.ReadUsersReq{UserId:userId, OrgId:orgId, User:req.User, Pagination:req.Pagination}
+	return s.dalCoreUserClient.ReadUsers(ctx, usersReq)
+}
+
+func (s *SrvCoreUserServiceServer) AdminQueryUsers(ctx context.Context, req *core.QueryUsersReq) (*core.UsersResp, error) {
+	userId, orgId, err := s.auth.CheckAuthority(ctx, "P_SYS_USER_R")
+	if err != nil {
+		return nil, err
+	}
+	usersReq := &core.ReadUsersReq{UserId:userId, OrgId:orgId, User:req.User, Pagination:req.Pagination}
+	return s.dalCoreUserClient.ReadUsers(ctx, usersReq)
+}
+
 func NewSrvCoreUserServiceServer(dalCoreUserAddr string) *SrvCoreUserServiceServer {
 	var err error
 	s := &SrvCoreUserServiceServer{}
 	s.dalCoreUserConn, err = grpc.Dial(dalCoreUserAddr, grpc.WithInsecure())
-	if err != nil {
+	if err != nil {	
 		log.Fatalf("did not connect: %v", err)
 	}
 	s.dalCoreUserClient = core.NewDalUserServiceClient(s.dalCoreUserConn)
@@ -42,50 +64,52 @@ func (s *SrvCoreUserServiceServer) close() {
 	}
 }
 
-func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.RegisterReq) (*core.UserWithOrg, error) {
+func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.RegisterReq) (*core.UserWithOrgAuth, error) {
 	glog.Info("registering new user...")
 	user := &core.User{}
 	switch req.Type {
 	case core.RegisterType_REGISTER_TYPE_USERNAME_PASS: // username + password (activated)
-		user.Username = req.Key
-		user.Password = req.Secret
+		user.Username = &wrappers.StringValue{Value:req.Key}
+		user.Password = &wrappers.StringValue{Value:req.Secret}
 		user.Status = core.EntityStatus_ENTITY_STATUS_NORMAL
 	case core.RegisterType_REGISTER_TYPE_PHONE_PASS: //phone + password (later activation)
-		user.Phone = req.Key
-		user.Password = req.Secret
+		user.Phone = &wrappers.StringValue{Value:req.Key}
+		user.Password = &wrappers.StringValue{Value:req.Secret}
 		user.Status = core.EntityStatus_ENTITY_STATUS_INACTIVATED
 	case core.RegisterType_REGISTER_TYPE_PHONE_CODE: //phone + code (activated)
 		err := utils.CheckPhoneCode(core.SmsType_SMS_CODE_REGISTER.String(), req.Key, req.Code)
 		if err != nil {
 			return nil, err
 		}
-		user.Phone = req.Key
-		user.Password = utils.RandString(10)
+		user.Phone = &wrappers.StringValue{Value:req.Key}
+		user.Password = &wrappers.StringValue{Value:utils.RandString(10)}
 		user.Status = core.EntityStatus_ENTITY_STATUS_NORMAL
 	case core.RegisterType_REGISTER_TYPE_EMAIL_PASS: //email + pass (later activation)
-		user.Email = req.Key
-		user.Password = req.Secret
+		user.Email = &wrappers.StringValue{Value:req.Key}
+		user.Password = &wrappers.StringValue{Value:req.Secret}
 		user.Status = core.EntityStatus_ENTITY_STATUS_INACTIVATED
 	case core.RegisterType_REGISTER_TYPE_PHONE_PASS_CODE: //phone + pass + code
 		err := utils.CheckPhoneCode(core.SmsType_SMS_CODE_REGISTER.String(), req.Key, req.Code)
 		if err != nil {
 			return nil, err
 		}
-		user.Phone = req.Key
-		user.Password = req.Secret
+		user.Phone = &wrappers.StringValue{Value:req.Key}
+		user.Password = &wrappers.StringValue{Value:req.Secret}
 		user.Status = core.EntityStatus_ENTITY_STATUS_NORMAL
 	}
-	_, err := s.dalCoreUserClient.CreateUser(ctx, user)
+
+	userReq := &core.CreateUserReq{ User:user}
+	userWithOrgs, err := s.dalCoreUserClient.CreateUser(ctx, userReq)
 	if err != nil {
 		glog.Error(err)
 		return nil, err
 	}
 
-	return &core.UserWithOrg{}, nil
+	return userWithOrgs, nil
 }
-func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *core.LoginReq) (*core.UserWithOrg, error) {
+func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *core.LoginReq) (*core.UserWithOrgAuth, error) {
 	glog.Info("user logging in...")
-	at, rt, err := s.auth.UserGetAccessToken(req.Type.String(), req.Key, req.Secret, req.Code, req.OrgId)
+	at, rt, err := s.auth.UserGetAccessToken(req.Type.String(), req.Key, req.Secret, req.Code, strconv.FormatInt(req.OrgId, 10))
 	if err != nil {
 		glog.Error(err)
 		return nil, err
@@ -118,11 +142,8 @@ func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *core.LoginReq
 		glog.Error(err)
 		return nil, err
 	}
-	orgIdNum, err := strconv.ParseInt(req.OrgId, 10, 64)
-	if err != nil {
-		orgIdNum = 0
-	}
-	qResp, err := s.dalCoreUserClient.ReadUser(ctx, &core.User{Id: userId, OrgId:orgIdNum})
+	userReq := &core.ReadUserReq{User: &core.User{Id: userId, OrgId:req.OrgId}}
+	qResp, err := s.dalCoreUserClient.ReadUserAuth(ctx, userReq)
 	if err != nil {
 		glog.Error(err)
 		return nil, err
@@ -142,7 +163,7 @@ func (s *SrvCoreUserServiceServer) ResetPassword(ctx context.Context, req *core.
 			return nil, status.Error(codes.InvalidArgument, "INVALID_CODE")
 		}
 		updateUserReq.Type = core.UpdateUserType_UPDATE_USER_TYPE_PHONE
-		updateUserReq.User = &core.User{Phone:req.Key, Password:req.Secret}
+		updateUserReq.User = &core.User{Phone:&wrappers.StringValue{Value:req.Key}, Password:&wrappers.StringValue{Value:req.Secret}}
 	}
 	_, err := s.dalCoreUserClient.UpdateUser(ctx, updateUserReq)
 	if err != nil {
@@ -151,12 +172,18 @@ func (s *SrvCoreUserServiceServer) ResetPassword(ctx context.Context, req *core.
 	return &core.Empty{}, nil
 }
 
+func (s *SrvCoreUserServiceServer) Logout(ctx context.Context, req *core.Empty) (*core.Empty, error) {
+	auth.ClearToken(ctx)
+	return &core.Empty{}, nil
+}
+
 func (s *SrvCoreUserServiceServer) Activate(context.Context, *core.Empty) (*core.Empty, error) {
 	panic("implement me")
 }
 
-func (s *SrvCoreUserServiceServer) UserInfo(context.Context, *core.Empty) (*core.Empty, error) {
-	panic("implement me")
+func (s *SrvCoreUserServiceServer) UserInfo(ctx context.Context, req *core.Empty) (*core.Empty, error) {
+	err := s.auth.CheckAuthentication(ctx)
+	return &core.Empty{}, err
 }
 
 func (s *SrvCoreUserServiceServer) UpdateUser(context.Context, *core.Empty) (*core.Empty, error) {
