@@ -7,6 +7,7 @@ import (
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/requests"
 	"github.com/bootapp/srv-core/oauth"
 	"github.com/bootapp/srv-core/proto/core"
+	"github.com/bootapp/srv-core/settings"
 	"github.com/bootapp/srv-core/utils"
 	"github.com/golang/glog"
 	"github.com/golang/protobuf/ptypes/wrappers"
@@ -19,31 +20,21 @@ import (
 	"time"
 )
 
-type EmailParam struct {
-	ServerHost string
-	ServerPort int
-	ServerMail string
-	ServerPassword string
-	FromEmail string
-	FromName string
-}
-
 type SrvCoreSecurityServiceServer struct {
 	dalCoreUserClient core.DalUserServiceClient
 	dalCoreUserConn *grpc.ClientConn
 	aliClient *sdk.Client
 	oauthServer *oauth.UserPassOAuthServer
-	emailParam *EmailParam
 }
 
-func NewSecurityServer(dalCoreUserAddr string, emailParam *EmailParam) *SrvCoreSecurityServiceServer {
+func NewSecurityServer() *SrvCoreSecurityServiceServer {
 	s := &SrvCoreSecurityServiceServer{}
 	var err error
-	s.aliClient, err = sdk.NewClientWithAccessKey("cn-hangzhou", "", "")
+	s.aliClient, err = sdk.NewClientWithAccessKey(settings.CredentialSMSRegionId, settings.CredentialSMSAccessKeyId, settings.CredentialSMSAccessSecret)
 	if err != nil {
 		panic(err)
 	}
-	s.dalCoreUserConn, err = grpc.Dial(dalCoreUserAddr, grpc.WithInsecure())
+	s.dalCoreUserConn, err = grpc.Dial(settings.DalCoreUserAddr, grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
@@ -52,7 +43,6 @@ func NewSecurityServer(dalCoreUserAddr string, emailParam *EmailParam) *SrvCoreS
 	if err != nil {
 		log.Fatalf("phone regex creation error: %v", err)
 	}
-	s.emailParam = emailParam
 	s.oauthServer = oauth.GetOauthServer()
 	return s
 }
@@ -114,19 +104,19 @@ func (s *SrvCoreSecurityServiceServer) SendPhoneCode(ctx context.Context, req *c
 	request.Domain = "dysmsapi.aliyuncs.com"
 	request.Version = "2017-05-25"
 	request.ApiName = "SendSms"
-	request.QueryParams["RegionId"] = "cn-hangzhou"
+	request.QueryParams["RegionId"] = settings.CredentialSMSRegionId
 	if !strings.Contains(req.Phone, "-") {
 		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:phone")
 	}
 	request.QueryParams["PhoneNumbers"] = strings.Split(req.Phone, "-")[1]
-	request.QueryParams["SignName"] = "易HS"
+	request.QueryParams["SignName"] = settings.CredentialSMSSignName
 	switch req.Type {
 	case core.SmsType_SMS_CODE_REGISTER:
-		request.QueryParams["TemplateCode"] = "SMS_167875054"
+		request.QueryParams["TemplateCode"] = settings.CredentialSMSRegisterTemplateCode
 	case core.SmsType_SMS_CODE_LOGIN:
-		request.QueryParams["TemplateCode"] = "SMS_167875054"
+		request.QueryParams["TemplateCode"] = settings.CredentialSMSLoginTemplateCode
 	case core.SmsType_SMS_CODE_RESET_PASS:
-		request.QueryParams["TemplateCode"] = "SMS_168250184"
+		request.QueryParams["TemplateCode"] = settings.CredentialSMSResetPassTemplateCode
 
 	}
 	request.QueryParams["TemplateParam"] = "{\"code\":\"" + text + "\"}"
@@ -163,8 +153,9 @@ func (s *SrvCoreSecurityServiceServer) VerifyPhoneCode(ctx context.Context, req 
 func (s *SrvCoreSecurityServiceServer) SendEmail(ctx context.Context, req *core.SendEmailReq) (*core.Empty, error) {
 	m := gomail.NewMessage()
 	m.SetHeader("To", req.Email)
-	m.SetAddressHeader("From", s.emailParam.FromEmail, s.emailParam.FromName)
-	d:= gomail.NewDialer(s.emailParam.ServerHost, s.emailParam.ServerPort, s.emailParam.ServerMail, s.emailParam.ServerPassword)
+	m.SetAddressHeader("From", settings.CredentialEmailFromEmail, settings.CredentialEmailFromName)
+	d:= gomail.NewDialer(settings.CredentialEmailServerHost, settings.CredentialEmailServerPort,
+		settings.CredentialEmailServerMail, settings.CredentialEmailServerPassword)
 
 	switch req.Type {
 	default: // plain

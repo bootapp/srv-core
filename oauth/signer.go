@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"bytes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -24,7 +25,8 @@ func unpadding(src []byte) []byte {
 func (s *UserPassOAuthServer) AESEncrypt(src string) string {
 	code := []byte(src)
 	code = padding(code, s.aesCipher.BlockSize())
-	s.aesEncrypt.CryptBlocks(code, code)
+	aesEncrypt := cipher.NewCBCEncrypter(s.aesCipher, s.aesKey)
+	aesEncrypt.CryptBlocks(code, code)
 	return hex.EncodeToString(code)
 }
 
@@ -33,7 +35,8 @@ func (s *UserPassOAuthServer) AESDecrypt(src string) string {
 	if err != nil {
 		return ""
 	}
-	s.aesDecrypt.CryptBlocks(code, code)
+	aesDecrypt := cipher.NewCBCDecrypter(s.aesCipher, s.aesKey)
+	aesDecrypt.CryptBlocks(code, code)
 	res := unpadding(code)
 	return string(res)
 }

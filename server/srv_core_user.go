@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"github.com/bootapp/rest-grpc-oauth2/auth"
+	"github.com/bootapp/srv-core/oauth"
 	"github.com/bootapp/srv-core/proto/core"
+	"github.com/bootapp/srv-core/settings"
 	"github.com/bootapp/srv-core/utils"
 	"github.com/golang/glog"
 	"github.com/golang/protobuf/ptypes/wrappers"
@@ -22,6 +24,27 @@ type SrvCoreUserServiceServer struct {
 	dalCoreUserClient core.DalUserServiceClient
 	dalCoreUserConn *grpc.ClientConn
 	auth *auth.StatelessAuthenticator
+	oauthServer *oauth.UserPassOAuthServer
+}
+
+func NewSrvCoreUserServiceServer() *SrvCoreUserServiceServer {
+	var err error
+	s := &SrvCoreUserServiceServer{}
+	s.dalCoreUserConn, err = grpc.Dial(settings.DalCoreUserAddr, grpc.WithInsecure())
+	if err != nil {
+		log.Fatalf("did not connect: %v", err)
+	}
+	s.dalCoreUserClient = core.NewDalUserServiceClient(s.dalCoreUserConn)
+	s.auth = auth.GetInstance()
+	s.oauthServer = oauth.GetOauthServer()
+	return s
+}
+
+func (s *SrvCoreUserServiceServer) close() {
+	err :=s.dalCoreUserConn.Close()
+	if err != nil {
+		glog.Error(err)
+	}
 }
 
 func (s *SrvCoreUserServiceServer) QueryUsers(ctx context.Context, req *core.QueryUsersReq) (*core.UsersResp, error) {
@@ -43,25 +66,6 @@ func (s *SrvCoreUserServiceServer) AdminQueryUsers(ctx context.Context, req *cor
 	}
 	usersReq := &core.ReadUsersReq{UserId:userId, OrgId:orgId, User:req.User, Pagination:req.Pagination}
 	return s.dalCoreUserClient.ReadUsers(ctx, usersReq)
-}
-
-func NewSrvCoreUserServiceServer(dalCoreUserAddr string) *SrvCoreUserServiceServer {
-	var err error
-	s := &SrvCoreUserServiceServer{}
-	s.dalCoreUserConn, err = grpc.Dial(dalCoreUserAddr, grpc.WithInsecure())
-	if err != nil {	
-		log.Fatalf("did not connect: %v", err)
-	}
-	s.dalCoreUserClient = core.NewDalUserServiceClient(s.dalCoreUserConn)
-	s.auth = auth.GetInstance()
-	return s
-}
-
-func (s *SrvCoreUserServiceServer) close() {
-	err :=s.dalCoreUserConn.Close()
-	if err != nil {
-		glog.Error(err)
-	}
 }
 
 func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.RegisterReq) (*core.UserWithOrgAuth, error) {
@@ -96,9 +100,31 @@ func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.Regis
 		user.Phone = &wrappers.StringValue{Value:req.Key}
 		user.Password = &wrappers.StringValue{Value:req.Secret}
 		user.Status = core.EntityStatus_ENTITY_STATUS_NORMAL
+	case core.RegisterType_REGISTER_TYPE_CIPHER:
+		params := strings.Split(s.oauthServer.AESDecrypt(req.Key), "&")
+		for _, d := range params {
+			kv := strings.Split(d, "=")
+			if len(kv) > 0 {
+				switch kv[0] {
+				case "email":
+					_, err := s.dalCoreUserClient.UpdateUser(ctx, &core.UpdateUserReq{Type:core.UpdateUserType_UPDATE_USER_TYPE_EMAIL,
+						User:&core.User{
+							Email:&wrappers.StringValue{Value:kv[1]},
+							Password:&wrappers.StringValue{Value:req.Secret},
+							Status:core.EntityStatus_ENTITY_STATUS_NORMAL,
+						}})
+					if err != nil {
+						return nil, err
+					}
+					return s.dalCoreUserClient.ReadUserAuth(ctx, &core.ReadUserReq{User:&core.User{Email:&wrappers.StringValue{Value:kv[1]}}})
+				}
+			}
+		}
+		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:cipher")
+	default:
+		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:type")
 	}
-
-	userReq := &core.CreateUserReq{ User:user}
+	userReq := &core.CreateUserReq{User:user}
 	userWithOrgs, err := s.dalCoreUserClient.CreateUser(ctx, userReq)
 	if err != nil {
 		glog.Error(err)

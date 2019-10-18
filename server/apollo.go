@@ -5,16 +5,12 @@ import (
 	"encoding/json"
 	"github.com/bootapp/rest-grpc-oauth2/auth"
 	"github.com/bootapp/srv-core/oauth"
+	"github.com/bootapp/srv-core/settings"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/glog"
 	"github.com/shima-park/agollo"
 	"os"
 )
-
-type GRpcServiceAddr struct {
-	DALCoreUserSrv string
-}
-
 type ConfigYml struct {
 	oauth struct {
 		server struct {
@@ -23,7 +19,7 @@ type ConfigYml struct {
 		}
 }
 }
-func ApolloConfig(ctx context.Context, cacheOnly bool, rpcSrvAddr *GRpcServiceAddr, server *oauth.UserPassOAuthServer, authenticator *auth.StatelessAuthenticator) {
+func ApolloConfig(ctx context.Context, cacheOnly bool, server *oauth.UserPassOAuthServer, authenticator *auth.StatelessAuthenticator) {
 	err := agollo.InitWithDefaultConfigFile(
 		agollo.WithLogger(agollo.NewLogger(agollo.LoggerWriter(os.Stdout))),
 		agollo.AutoFetchOnCacheMiss(),
@@ -52,7 +48,7 @@ func ApolloConfig(ctx context.Context, cacheOnly bool, rpcSrvAddr *GRpcServiceAd
 	serverStr := agollo.Get("oauth.serverAddr")
 	authenticator.SetOauthClient(serverStr, configStr, secretStr)
 	configStr = agollo.Get("grpcServiceAddr.dal.core")
-	rpcSrvAddr.DALCoreUserSrv = configStr
+	settings.DalCoreUserAddr = configStr
 	authenticator.SetAuthorityEndpoint(configStr)
 	server.SetupUserClient(configStr)
 	err = authenticator.ScheduledFetchAuthorities(ctx)

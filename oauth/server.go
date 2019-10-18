@@ -12,6 +12,7 @@ import (
 	"github.com/bootapp/oauth2/server"
 	"github.com/bootapp/oauth2/store"
 	"github.com/bootapp/srv-core/proto/core"
+	"github.com/bootapp/srv-core/settings"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/glog"
 	_ "golang.org/x/crypto/sha3"
@@ -29,8 +30,6 @@ type UserPassOAuthServer struct {
 	Hash crypto.Hash
 	aesKey []byte
 	aesCipher cipher.Block
-	aesEncrypt cipher.BlockMode
-	aesDecrypt cipher.BlockMode
 }
 var (
 	dalCoreUserClient core.DalUserServiceClient
@@ -83,16 +82,13 @@ func (s *UserPassOAuthServer) Init() {
 
 	s.Hash = crypto.SHA3_256
 
-	s.aesKey = []byte("e92823uaybd2fsfz")
+	s.aesKey = []byte(settings.SignerAESKey)
 
 	var err error
 	s.aesCipher, err = aes.NewCipher(s.aesKey)
 	if err != nil {
 		panic(err)
 	}
-
-	s.aesEncrypt = cipher.NewCBCEncrypter(s.aesCipher, s.aesKey)
-	s.aesDecrypt = cipher.NewCBCDecrypter(s.aesCipher, s.aesKey)
 
 }
 

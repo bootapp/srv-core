@@ -7,6 +7,7 @@ import (
 	"github.com/bootapp/srv-core/oauth"
 	pb "github.com/bootapp/srv-core/proto/core"
 	"github.com/bootapp/srv-core/server"
+	"github.com/bootapp/srv-core/settings"
 	"github.com/bootapp/srv-core/utils"
 	"github.com/golang/glog"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -35,32 +36,24 @@ func main() {
 	//====== initialize oauth server
 	oauthServer := oauth.NewPassOAuthServer()
 	//====== read configs and listen changes from apollo
-	rpcSrv := server.GRpcServiceAddr{}
-	server.ApolloConfig(ctx, false, &rpcSrv, oauthServer, authenticator)
+	server.ApolloConfig(ctx, false, oauthServer, authenticator)
 	// "redis://:qwerty@localhost:6379/1"
-	utils.InitRedis("redis://bootapp.local:6379/0")
+	utils.InitRedis(settings.RedisAddr)
 	go func() {
 		defer cancel()
 		_ = gwRun(ctx, *httpEndpoint, *grpcEndpoint)
 	}()
-	_ = grpcRun(ctx, *grpcEndpoint, rpcSrv)
+	_ = grpcRun(ctx, *grpcEndpoint)
 }
 
-func grpcRun(ctx context.Context, grpcEndpoint string, addr server.GRpcServiceAddr) error {
+func grpcRun(ctx context.Context, grpcEndpoint string) error {
 	l, err := net.Listen("tcp", grpcEndpoint)
 	if err != nil {
 		return err
 	}
 	grpcServer := grpc.NewServer()
-	srvCoreUserSrv := server.NewSrvCoreUserServiceServer(addr.DALCoreUserSrv)
-	srvCoreSecuritySrv := server.NewSecurityServer(addr.DALCoreUserSrv, &server.EmailParam{
-		ServerHost: "smtp.126.com",
-		ServerPort: 465,
-		ServerMail: "",
-		ServerPassword: "",
-		FromEmail: "",
-		FromName: "测试",
-	})
+	srvCoreUserSrv := server.NewSrvCoreUserServiceServer()
+	srvCoreSecuritySrv := server.NewSecurityServer()
 	pb.RegisterSrvCoreUserServiceServer(grpcServer, srvCoreUserSrv)
 	pb.RegisterSrvSecurityServiceServer(grpcServer, srvCoreSecuritySrv)
 	go func() {
