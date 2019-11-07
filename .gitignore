@@ -1,3 +1,5 @@
 build/
 .idea
 proto/
+go.sum
+settings/credentials.go
