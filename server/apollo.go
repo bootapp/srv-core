@@ -49,6 +49,7 @@ func ApolloConfig(ctx context.Context, cacheOnly bool, server *oauth.UserPassOAu
 	authenticator.SetOauthClient(serverStr, configStr, secretStr)
 	configStr = agollo.Get("grpcServiceAddr.dal.core")
 	settings.DalCoreUserAddr = configStr
+	settings.DalCoreSysAddr = configStr
 	authenticator.SetAuthorityEndpoint(configStr)
 	server.SetupUserClient(configStr)
 	err = authenticator.ScheduledFetchAuthorities(ctx)

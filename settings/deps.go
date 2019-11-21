@@ -5,6 +5,7 @@ var (
 )
 var (
 	DalCoreUserAddr string
+	DalCoreSysAddr string
 )
 
 var (

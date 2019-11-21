@@ -19,7 +19,7 @@ import (
 
 var orgNameRegex *regexp.Regexp
 
-func procQueryUserResp(resp *core.UserWithOrgAuth) (userID int64, orgID int64, authorities map[int64]int64, err error) {
+func procQueryUserResp(resp *core.UserWithOrgAuth) (userID int64, orgID int64, authorities map[int64][]int64, err error) {
 	if orgNameRegex == nil {
 		orgNameRegex, err = regexp.Compile("[|:]")
 	}
@@ -40,11 +40,12 @@ func procQueryUserResp(resp *core.UserWithOrgAuth) (userID int64, orgID int64, a
 		}
 		return 0, 0, nil, status.Error(codes.FailedPrecondition, result)
 	} else {
-		return resp.User.Id, resp.OrgInfo[0].Id, auth.AuthorityEncode(strings.Split(resp.OrgInfo[0].AuthorityGroups, ";"), strings.Split(resp.OrgInfo[0].Authorities, ";")), nil
+		authorities, err = auth.AuthorityEncode(strings.Split(resp.OrgInfo[0].AuthorityGroups, ";"), strings.Split(resp.OrgInfo[0].Authorities, ";"))
+		return resp.User.Id, resp.OrgInfo[0].Id, authorities, err
 	}
 
 }
-func loginHandler(username, password, code, orgId, authType string) (userID int64, orgID int64, authorities map[int64]int64, err error) {
+func loginHandler(username, password, code, orgId, authType string) (userID int64, orgID int64, authorities map[int64][]int64, err error) {
 	glog.Info("authenticating user...")
 	orgIdNum, err := strconv.ParseInt(orgId, 10, 64)
 	if err != nil {
