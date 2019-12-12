@@ -17,4 +17,11 @@ var (
 	CredentialSMSLoginTemplateCode = ""
 	CredentialSMSRegisterTemplateCode = ""
 	CredentialSMSResetPassTemplateCode = ""
+
+var (
+	CredentialAliOSSKey = ""
+	CredentialAliOSSSecret = ""
+	CredentialAliOSSHost = ""
+	CredentialAliOSSCallbackHost = ""
+	CredentialAliOSSExpireTime int64 = 30
 )

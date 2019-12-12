@@ -55,9 +55,11 @@ func grpcRun(ctx context.Context, grpcEndpoint string) error {
 	srvCoreUserSrv := server.NewSrvCoreUserServiceServer()
 	srvCoreSecuritySrv := server.NewSecurityServer()
 	srvCoreSysSrv := server.NewSysServer()
+	srvDataStoreSrv := server.NewDataStoreServer()
 	pb.RegisterSrvCoreUserServiceServer(grpcServer, srvCoreUserSrv)
 	pb.RegisterSrvSecurityServiceServer(grpcServer, srvCoreSecuritySrv)
 	pb.RegisterSrvCoreSysServiceServer(grpcServer, srvCoreSysSrv)
+	pb.RegisterSrvDataStoreServiceServer(grpcServer, srvDataStoreSrv)
 	go func() {
 		defer grpcServer.GracefulStop()
 		<-ctx.Done()
@@ -93,6 +95,10 @@ func gwRun(ctx context.Context, httpEndpoint string, grpcEndpoint string) error 
 		return err
 	}
 	if err := pb.RegisterSrvCoreSysServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
+		glog.Fatal("failed to start rest gateway: %v", err)
+		return err
+	}
+	if err := pb.RegisterSrvDataStoreServiceHandlerFromEndpoint(ctx, mux, grpcEndpoint, opts); err != nil {
 		glog.Fatal("failed to start rest gateway: %v", err)
 		return err
 	}

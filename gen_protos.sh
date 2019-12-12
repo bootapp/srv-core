@@ -12,6 +12,7 @@ protoc -I$GOPATH/src/github.com/bootapp/proto-core \
     --go_out=plugins=grpc:./proto/core \
     $GOPATH/src/github.com/bootapp/proto-core/srv_user.proto \
     $GOPATH/src/github.com/bootapp/proto-core/srv_security.proto \
+    $GOPATH/src/github.com/bootapp/proto-core/srv_data_store.proto \
     $GOPATH/src/github.com/bootapp/proto-core/srv_auth.proto
 #------------------- restful gateway
 protoc -I$GOPATH/src/github.com/bootapp/proto-core \
@@ -19,6 +20,7 @@ protoc -I$GOPATH/src/github.com/bootapp/proto-core \
     --grpc-gateway_out=logtostderr=true:./proto/core \
     $GOPATH/src/github.com/bootapp/proto-core/srv_user.proto \
     $GOPATH/src/github.com/bootapp/proto-core/srv_security.proto \
+    $GOPATH/src/github.com/bootapp/proto-core/srv_data_store.proto \
     $GOPATH/src/github.com/bootapp/proto-core/srv_auth.proto
 #------------------- swagger
 #protoc -I$GOPATH/src/github.com/bootapp/proto-core \
