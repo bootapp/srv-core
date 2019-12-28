@@ -5,7 +5,7 @@ import (
 	"flag"
 	"github.com/bootapp/rest-grpc-oauth2/auth"
 	"github.com/bootapp/srv-core/oauth"
-	pb "github.com/bootapp/srv-core/proto/core"
+	pb "github.com/bootapp/srv-core/proto"
 	"github.com/bootapp/srv-core/server"
 	"github.com/bootapp/srv-core/settings"
 	"github.com/bootapp/srv-core/utils"

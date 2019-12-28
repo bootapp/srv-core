@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"github.com/bootapp/rest-grpc-oauth2/auth"
 	"github.com/bootapp/srv-core/oauth"
-	"github.com/bootapp/srv-core/proto/core"
+	core "github.com/bootapp/srv-core/proto"
 	"github.com/bootapp/srv-core/settings"
 	"github.com/bootapp/srv-core/utils"
 	"github.com/golang/glog"

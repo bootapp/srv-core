@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"github.com/bootapp/rest-grpc-oauth2/auth"
-	"github.com/bootapp/srv-core/proto/core"
+	core "github.com/bootapp/srv-core/proto"
 	"github.com/bootapp/srv-core/settings"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

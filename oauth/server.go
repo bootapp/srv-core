@@ -11,7 +11,7 @@ import (
 	"github.com/bootapp/oauth2/models"
 	"github.com/bootapp/oauth2/server"
 	"github.com/bootapp/oauth2/store"
-	"github.com/bootapp/srv-core/proto/core"
+	core "github.com/bootapp/srv-core/proto"
 	"github.com/bootapp/srv-core/settings"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/glog"

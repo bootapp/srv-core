@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/bootapp/rest-grpc-oauth2/auth"
-	"github.com/bootapp/srv-core/proto/core"
+	core "github.com/bootapp/srv-core/proto"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/glog"
 	"github.com/golang/protobuf/ptypes/wrappers"

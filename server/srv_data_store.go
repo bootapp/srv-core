@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk"
 	"github.com/bootapp/srv-core/oauth"
-	"github.com/bootapp/srv-core/proto/core"
+	core "github.com/bootapp/srv-core/proto"
 	"github.com/bootapp/srv-core/settings"
 	"github.com/bootapp/srv-core/utils"
 	"google.golang.org/grpc"
