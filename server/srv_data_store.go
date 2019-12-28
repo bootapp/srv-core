@@ -2,10 +2,7 @@ package server
 
 import (
 	"context"
-	"github.com/aliyun/alibaba-cloud-sdk-go/sdk"
-	"github.com/bootapp/srv-core/oauth"
 	core "github.com/bootapp/srv-core/proto"
-	"github.com/bootapp/srv-core/settings"
 	"github.com/bootapp/srv-core/utils"
 	"google.golang.org/grpc"
 )
@@ -13,25 +10,22 @@ import (
 type SrvCoreDataStoreServiceServer struct {
 	dalCoreUserClient core.DalUserServiceClient
 	dalCoreUserConn *grpc.ClientConn
-	aliClient *sdk.Client
-	oauthServer *oauth.UserPassOAuthServer
 }
 
 func NewDataStoreServer() *SrvCoreDataStoreServiceServer {
 	s := &SrvCoreDataStoreServiceServer{}
-	var err error
-	s.aliClient, err = sdk.NewClientWithAccessKey(settings.CredentialSMSRegionId, settings.CredentialSMSAccessKeyId, settings.CredentialSMSAccessSecret)
-	if err != nil {
-		panic(err)
-	}
-	s.oauthServer = oauth.GetOauthServer()
 	return s
 }
 func (s *SrvCoreDataStoreServiceServer) QueryUploadToken(ctx context.Context, req *core.UploadTokenReq) (*core.UploadTokenResp, error) {
 	var token *core.OSSPolicyToken
 	switch req.Type {
 	case core.FileDirType_FILE_TYPE_BUSINESS_LICENSE:
-		token = utils.GetPolicyToken("business-licenses/")
+		token = utils.GetPolicyToken("business-licenses/", true)
+	case core.FileDirType_FILE_TYPE_USER_PROFILE:
+		token = utils.GetPolicyToken("profiles/", false)
+	case core.FileDirType_FILE_TYPE_INSTITUTE_LOGO:
+		token = utils.GetPolicyToken("logos/", false)
+
 	}
 	return &core.UploadTokenResp{Token:token}, nil
 }

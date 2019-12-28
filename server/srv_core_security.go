@@ -2,9 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
-	"github.com/aliyun/alibaba-cloud-sdk-go/sdk"
-	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/requests"
 	"github.com/bootapp/srv-core/oauth"
 	core "github.com/bootapp/srv-core/proto"
 	"github.com/bootapp/srv-core/settings"
@@ -17,23 +14,18 @@ import (
 	"gopkg.in/gomail.v2"
 	"log"
 	"strings"
-	"time"
 )
 
 type SrvCoreSecurityServiceServer struct {
 	dalCoreUserClient core.DalUserServiceClient
 	dalCoreUserConn *grpc.ClientConn
-	aliClient *sdk.Client
 	oauthServer *oauth.UserPassOAuthServer
+	smsUtils utils.SmsUtils
 }
 
 func NewSecurityServer() *SrvCoreSecurityServiceServer {
 	s := &SrvCoreSecurityServiceServer{}
 	var err error
-	s.aliClient, err = sdk.NewClientWithAccessKey(settings.CredentialSMSRegionId, settings.CredentialSMSAccessKeyId, settings.CredentialSMSAccessSecret)
-	if err != nil {
-		panic(err)
-	}
 	s.dalCoreUserConn, err = grpc.Dial(settings.DalCoreUserAddr, grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
@@ -44,6 +36,13 @@ func NewSecurityServer() *SrvCoreSecurityServiceServer {
 		log.Fatalf("phone regex creation error: %v", err)
 	}
 	s.oauthServer = oauth.GetOauthServer()
+	switch settings.SmsServiceType {
+	case "ALIYUN":
+		s.smsUtils = &utils.AliSmsUtils{}
+	case "MONYUN":
+		s.smsUtils = &utils.MonSmsUtils{}
+	}
+	s.smsUtils.Init()
 	return s
 }
 func (s *SrvCoreSecurityServiceServer) Cipher(ctx context.Context, req *core.CipherReq) (*core.CipherResp, error) {
@@ -92,47 +91,16 @@ func (s *SrvCoreSecurityServiceServer) SendPhoneCode(ctx context.Context, req *c
 		return nil, status.Error(codes.AlreadyExists, "ALREADY_EXISTS")
 	}
 	text := utils.GenCode(6)
-
-	err = utils.SetKey(req.Type.String() + req.Phone, text, 5 * time.Minute)
+	err = utils.SetKey(req.Type.String() + req.Phone, text, settings.SmsRedisExireTime)
 	if err != nil {
 		return nil, err
 	}
-
-	request := requests.NewCommonRequest()
-	request.Method = "POST"
-	request.Scheme = "https"
-	request.Domain = "dysmsapi.aliyuncs.com"
-	request.Version = "2017-05-25"
-	request.ApiName = "SendSms"
-	request.QueryParams["RegionId"] = settings.CredentialSMSRegionId
-	if !strings.Contains(req.Phone, "-") {
-		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:phone")
-	}
-	request.QueryParams["PhoneNumbers"] = strings.Split(req.Phone, "-")[1]
-	request.QueryParams["SignName"] = settings.CredentialSMSSignName
-	switch req.Type {
-	case core.SmsType_SMS_CODE_REGISTER:
-		request.QueryParams["TemplateCode"] = settings.CredentialSMSRegisterTemplateCode
-	case core.SmsType_SMS_CODE_LOGIN:
-		request.QueryParams["TemplateCode"] = settings.CredentialSMSLoginTemplateCode
-	case core.SmsType_SMS_CODE_RESET_PASS:
-		request.QueryParams["TemplateCode"] = settings.CredentialSMSResetPassTemplateCode
-
-	}
-	request.QueryParams["TemplateParam"] = "{\"code\":\"" + text + "\"}"
-	resp, err := s.aliClient.ProcessCommonRequest(request)
+	// todo: response to different country codes
+	phone := strings.Split(req.Phone, "-")[1]
+	err = s.smsUtils.Send(phone, text, req.Type)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, err
 	}
-	jsonObj := make(map[string]interface{})
-	err = json.Unmarshal(resp.GetHttpContentBytes(), &jsonObj)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	if jsonObj["Code"] != "OK" {
-		return nil, status.Error(codes.InvalidArgument, jsonObj["Message"].(string))
-	}
-
 	return &core.Empty{}, nil
 }
 

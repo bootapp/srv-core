@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/bootapp/srv-core/proto/core"
+	core "github.com/bootapp/srv-core/proto"
 	"github.com/bootapp/srv-core/settings"
 	"hash"
 	"io"
@@ -29,7 +29,7 @@ type CallbackParam struct{
 	CallbackBodyType string `json:"callbackBodyType"`
 }
 
-func GetPolicyToken(uploadDir string) *core.OSSPolicyToken {
+func GetPolicyToken(uploadDir string, isPrivate bool) *core.OSSPolicyToken {
 	now := time.Now().Unix()
 	expire_end := now + settings.CredentialAliOSSExpireTime
 	var tokenExpire = getGmtIso8601(expire_end)
@@ -62,7 +62,11 @@ func GetPolicyToken(uploadDir string) *core.OSSPolicyToken {
 
 	policyToken := &core.OSSPolicyToken{}
 	policyToken.Key = settings.CredentialAliOSSKey
-	policyToken.Host = settings.CredentialAliOSSHost
+	if isPrivate {
+		policyToken.Host = settings.CredentialAliOSSHostSecret
+	} else {
+		policyToken.Host = settings.CredentialAliOSSHostPub
+	}
 	policyToken.Expire = expire_end
 	policyToken.Signature = string(signedStr)
 	policyToken.Dir = uploadDir

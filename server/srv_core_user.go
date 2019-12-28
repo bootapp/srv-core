@@ -215,3 +215,11 @@ func (s *SrvCoreUserServiceServer) UserInfo(ctx context.Context, req *core.Empty
 func (s *SrvCoreUserServiceServer) UpdateUser(context.Context, *core.Empty) (*core.Empty, error) {
 	panic("implement me")
 }
+
+func (s *SrvCoreUserServiceServer) AdminInvokeUpdateDictItem(context.Context, *core.InvokeUpdateDictReq) (*core.Empty, error) {
+	panic("implement me")
+}
+
+func (s *SrvCoreUserServiceServer) QueryDictTree(context.Context, *core.QueryDictTreeReq) (*core.DictItemList, error) {
+	panic("implement me")
+}
