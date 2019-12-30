@@ -2,21 +2,33 @@ package server
 
 import (
 	"context"
+	"github.com/bootapp/rest-grpc-oauth2/auth"
 	core "github.com/bootapp/srv-core/proto"
 	"github.com/bootapp/srv-core/utils"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type SrvCoreDataStoreServiceServer struct {
 	dalCoreUserClient core.DalUserServiceClient
 	dalCoreUserConn *grpc.ClientConn
+	auth *auth.StatelessAuthenticator
 }
 
 func NewDataStoreServer() *SrvCoreDataStoreServiceServer {
 	s := &SrvCoreDataStoreServiceServer{}
+	s.auth = auth.GetInstance()
 	return s
 }
 func (s *SrvCoreDataStoreServiceServer) QueryUploadToken(ctx context.Context, req *core.UploadTokenReq) (*core.UploadTokenResp, error) {
+	userId, _ := s.auth.GetAuthInfo(ctx)
+	if userId == 0 {
+		return nil, status.Error(codes.Unauthenticated, "")
+	}
+	if req.Type == core.FileDirType_FILE_TYPE_NULL {
+		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:type")
+	}
 	var token *core.OSSPolicyToken
 	switch req.Type {
 	case core.FileDirType_FILE_TYPE_BUSINESS_LICENSE:
@@ -25,7 +37,6 @@ func (s *SrvCoreDataStoreServiceServer) QueryUploadToken(ctx context.Context, re
 		token = utils.GetPolicyToken("profiles/", false)
 	case core.FileDirType_FILE_TYPE_INSTITUTE_LOGO:
 		token = utils.GetPolicyToken("logos/", false)
-
 	}
 	return &core.UploadTokenResp{Token:token}, nil
 }

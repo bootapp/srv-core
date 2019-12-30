@@ -68,9 +68,10 @@ func (s *SrvCoreUserServiceServer) AdminQueryUsers(ctx context.Context, req *cor
 	return s.dalCoreUserClient.ReadUsers(ctx, usersReq)
 }
 
-func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.RegisterReq) (*core.UserWithOrgAuth, error) {
+func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.RegisterReq) (*core.LoginResp, error) {
 	glog.Info("registering new user...")
 	user := &core.User{}
+	resp := &core.LoginResp{}
 	switch req.Type {
 	case core.RegisterType_REGISTER_TYPE_USERNAME_PASS: // username + password (activated)
 		user.Username = &wrappers.StringValue{Value:req.Key}
@@ -116,7 +117,12 @@ func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.Regis
 					if err != nil {
 						return nil, err
 					}
-					return s.dalCoreUserClient.ReadUserAuth(ctx, &core.ReadUserReq{User:&core.User{Email:&wrappers.StringValue{Value:kv[1]}}})
+					userRes, err := s.dalCoreUserClient.ReadUserAuth(ctx, &core.ReadUserReq{User:&core.User{Email:&wrappers.StringValue{Value:kv[1]}}})
+					if err != nil {
+						return nil, err
+					}
+					resp.User = userRes.User
+					return resp, nil
 				}
 			}
 		}
@@ -130,11 +136,12 @@ func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.Regis
 		glog.Error(err)
 		return nil, err
 	}
-
-	return userWithOrgs, nil
+	resp.User = userWithOrgs.User
+	return resp, nil
 }
-func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *core.LoginReq) (*core.UserWithOrgAuth, error) {
+func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *core.LoginReq) (*core.LoginResp, error) {
 	glog.Info("user logging in...")
+	resp := &core.LoginResp{}
 	at, rt, err := s.auth.UserGetAccessToken(req.Type.String(), req.Key, req.Secret, req.Code, strconv.FormatInt(req.OrgId, 10))
 	if err != nil {
 		glog.Error(err)
@@ -145,7 +152,10 @@ func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *core.LoginReq
 	} else {
 		glog.Info("injecting tokens to cookie...")
 		auth.ResponseTokenInjector(ctx, at, rt)
+		resp.AccessToken = at
+		resp.RefreshToken = rt
 	}
+	// 读取用户信息
 	tokenInfo := strings.Split(at, ".")
 	res , err := base64.RawStdEncoding.DecodeString(tokenInfo[1])
 	if err != nil {
@@ -174,9 +184,20 @@ func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *core.LoginReq
 		glog.Error(err)
 		return nil, err
 	}
-	return qResp, nil
+	resp.User = qResp.User
+	resp.OrgInfo = qResp.OrgInfo
+	return resp, nil
 }
-
+func (s *SrvCoreUserServiceServer) Refresh(ctx context.Context, req *core.RefreshReq) (*core.RefreshResp, error) {
+	at, rt, err := s.auth.UserRefreshToken(req.RefreshToken)
+	if err != nil {
+		return nil, err
+	}
+	if at == "" || rt == "" {
+		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:refresh_token")
+	}
+	return &core.RefreshResp{AccessToken:at, RefreshToken:rt}, nil
+}
 func (s *SrvCoreUserServiceServer) ResetPassword(ctx context.Context, req *core.ResetPasswordReq) (*core.Empty, error) {
 	updateUserReq := &core.UpdateUserReq{}
 	switch req.Type {
@@ -197,7 +218,6 @@ func (s *SrvCoreUserServiceServer) ResetPassword(ctx context.Context, req *core.
 	}
 	return &core.Empty{}, nil
 }
-
 func (s *SrvCoreUserServiceServer) Logout(ctx context.Context, req *core.Empty) (*core.Empty, error) {
 	auth.ClearToken(ctx)
 	return &core.Empty{}, nil
@@ -212,14 +232,53 @@ func (s *SrvCoreUserServiceServer) UserInfo(ctx context.Context, req *core.Empty
 	return &core.Empty{}, err
 }
 
-func (s *SrvCoreUserServiceServer) UpdateUser(context.Context, *core.Empty) (*core.Empty, error) {
-	panic("implement me")
+func (s *SrvCoreUserServiceServer) AdminInvokeUpdateDictItem(ctx context.Context, req *core.InvokeUpdateDictReq) (*core.Empty, error) {
+	userId, orgId, err := s.auth.CheckAuthority(ctx, "P_SUPER_ADMIN")
+	if err != nil {
+		return nil, err
+	}
+	return s.dalCoreUserClient.UpdateDictItems(ctx, &core.DictItemsReq{UserId:userId, OrgId:orgId, Data:[]*core.DictItemEdit{req.Item}})
 }
 
-func (s *SrvCoreUserServiceServer) AdminInvokeUpdateDictItem(context.Context, *core.InvokeUpdateDictReq) (*core.Empty, error) {
-	panic("implement me")
+func (s *SrvCoreUserServiceServer) AdminInvokeDeleteDictItem(ctx context.Context, req *core.IdReq) (*core.Empty, error) {
+	userId, orgId, err := s.auth.CheckAuthority(ctx, "P_SUPER_ADMIN")
+	if err != nil {
+		return nil, err
+	}
+	return s.dalCoreUserClient.DeleteDictItems(ctx, &core.AuthorizedIdsReq{UserId:userId, OrgId:orgId, Ids:[]int64{req.Id}})
 }
 
-func (s *SrvCoreUserServiceServer) QueryDictTree(context.Context, *core.QueryDictTreeReq) (*core.DictItemList, error) {
-	panic("implement me")
+func (s *SrvCoreUserServiceServer) QueryDictTree(ctx context.Context, req *core.QueryDictTreeReq) (*core.DictItemList, error) {
+	userId, orgId := s.auth.GetAuthInfo(ctx)
+	return s.dalCoreUserClient.ReadDictItems(ctx, &core.ReadDictItemsReq{UserId:userId, OrgId:orgId, Ids:req.Ids, Pid:req.Pid})
+}
+
+func (s *SrvCoreUserServiceServer) InvokeFollowUser(ctx context.Context, req *core.IdReq) (*core.Empty, error) {
+	userId, orgId := s.auth.GetAuthInfo(ctx)
+	if userId == 0 {
+		return nil, status.Error(codes.Unauthenticated, "")
+	}
+	if userId == req.Id {
+		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:id: cannot follow yourself")
+	}
+	return s.dalCoreUserClient.CreateSimpleRelation(ctx, &core.SimpleRelationReq{UserId:userId, OrgId:orgId,
+		Type:core.RelationType_RELATION_SIMPLE_USER_FOLLOW,
+		QueryUserId:userId,
+		ToId:req.Id,
+		})
+}
+
+func (s *SrvCoreUserServiceServer) InvokeBlockUser(ctx context.Context, req *core.IdReq) (*core.Empty, error) {
+	userId, orgId := s.auth.GetAuthInfo(ctx)
+	if userId == 0 {
+		return nil, status.Error(codes.Unauthenticated, "")
+	}
+	if userId == req.Id {
+		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:id: cannot block yourself")
+	}
+	return s.dalCoreUserClient.CreateSimpleRelation(ctx, &core.SimpleRelationReq{UserId:userId, OrgId:orgId,
+		Type:core.RelationType_RELATION_SIMPLE_USER_BLACKLIST,
+		QueryUserId:userId,
+		ToId:req.Id,
+	})
 }
