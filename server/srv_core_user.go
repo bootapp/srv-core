@@ -46,32 +46,21 @@ func (s *SrvCoreUserServiceServer) close() {
 		glog.Error(err)
 	}
 }
-
-func (s *SrvCoreUserServiceServer) QueryUsers(ctx context.Context, req *core.QueryUsersReq) (*core.UsersResp, error) {
-	if req.User == nil {
-		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:user")
-	}
-	userId, orgId := s.auth.GetAuthInfo(ctx)
-	if orgId != req.User.OrgId {
-		return nil, status.Error(codes.PermissionDenied, "PERMISSION_DENIED")
-	}
-	usersReq := &core.ReadUsersReq{UserId:userId, OrgId:orgId, User:req.User, Pagination:req.Pagination}
-	return s.dalCoreUserClient.ReadUsers(ctx, usersReq)
-}
-
-func (s *SrvCoreUserServiceServer) AdminQueryUsers(ctx context.Context, req *core.QueryUsersReq) (*core.UsersResp, error) {
-	userId, orgId, err := s.auth.CheckAuthority(ctx, "P_SYS_USER_R")
-	if err != nil {
-		return nil, err
-	}
-	usersReq := &core.ReadUsersReq{UserId:userId, OrgId:orgId, User:req.User, Pagination:req.Pagination}
-	return s.dalCoreUserClient.ReadUsers(ctx, usersReq)
-}
-
+// ===================================================== User actions
 func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.RegisterReq) (*core.LoginResp, error) {
 	glog.Info("registering new user...")
 	user := &core.User{}
 	resp := &core.LoginResp{}
+
+	// ------------ decode base64
+	if req.Secret != "" {
+		decoded, err := base64.StdEncoding.DecodeString(req.Secret)
+		if err != nil {
+			return nil, err
+		}
+		req.Secret = string(decoded)
+	}
+
 	switch req.Type {
 	case core.RegisterType_REGISTER_TYPE_USERNAME_PASS: // username + password (activated)
 		user.Username = &wrappers.StringValue{Value:req.Key}
@@ -142,6 +131,16 @@ func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.Regis
 func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *core.LoginReq) (*core.LoginResp, error) {
 	glog.Info("user logging in...")
 	resp := &core.LoginResp{}
+
+	// ------------ decode base64
+	if req.Secret != "" {
+		decoded, err := base64.StdEncoding.DecodeString(req.Secret)
+		if err != nil {
+			return nil, err
+		}
+		req.Secret = string(decoded)
+	}
+
 	at, rt, err := s.auth.UserGetAccessToken(req.Type.String(), req.Key, req.Secret, req.Code, strconv.FormatInt(req.OrgId, 10))
 	if err != nil {
 		glog.Error(err)
@@ -199,6 +198,16 @@ func (s *SrvCoreUserServiceServer) Refresh(ctx context.Context, req *core.Refres
 	return &core.RefreshResp{AccessToken:at, RefreshToken:rt}, nil
 }
 func (s *SrvCoreUserServiceServer) ResetPassword(ctx context.Context, req *core.ResetPasswordReq) (*core.Empty, error) {
+
+	// ------------ decode base64
+	if req.Secret != "" {
+		decoded, err := base64.StdEncoding.DecodeString(req.Secret)
+		if err != nil {
+			return nil, err
+		}
+		req.Secret = string(decoded)
+	}
+
 	updateUserReq := &core.UpdateUserReq{}
 	switch req.Type {
 	case core.ResetPasswordType_RESET_PASS_TYPE_PHONE_CODE:
@@ -222,16 +231,34 @@ func (s *SrvCoreUserServiceServer) Logout(ctx context.Context, req *core.Empty) 
 	auth.ClearToken(ctx)
 	return &core.Empty{}, nil
 }
-
 func (s *SrvCoreUserServiceServer) Activate(context.Context, *core.Empty) (*core.Empty, error) {
 	panic("implement me")
 }
-
 func (s *SrvCoreUserServiceServer) UserInfo(ctx context.Context, req *core.Empty) (*core.Empty, error) {
 	err := s.auth.CheckAuthentication(ctx)
 	return &core.Empty{}, err
 }
-
+// ===================================================== User managements
+func (s *SrvCoreUserServiceServer) QueryUsers(ctx context.Context, req *core.QueryUsersReq) (*core.UsersResp, error) {
+	if req.User == nil {
+		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:user")
+	}
+	userId, orgId := s.auth.GetAuthInfo(ctx)
+	if orgId != req.User.OrgId {
+		return nil, status.Error(codes.PermissionDenied, "PERMISSION_DENIED")
+	}
+	usersReq := &core.ReadUsersReq{UserId:userId, OrgId:orgId, User:req.User, Pagination:req.Pagination}
+	return s.dalCoreUserClient.ReadUsers(ctx, usersReq)
+}
+func (s *SrvCoreUserServiceServer) AdminQueryUsers(ctx context.Context, req *core.QueryUsersReq) (*core.UsersResp, error) {
+	userId, orgId, err := s.auth.CheckAuthority(ctx, "P_SYS_USER_R")
+	if err != nil {
+		return nil, err
+	}
+	usersReq := &core.ReadUsersReq{UserId:userId, OrgId:orgId, User:req.User, Pagination:req.Pagination}
+	return s.dalCoreUserClient.ReadUsers(ctx, usersReq)
+}
+// ===================================================== DictTree
 func (s *SrvCoreUserServiceServer) AdminInvokeUpdateDictItem(ctx context.Context, req *core.InvokeUpdateDictReq) (*core.Empty, error) {
 	userId, orgId, err := s.auth.CheckAuthority(ctx, "P_SUPER_ADMIN")
 	if err != nil {
@@ -239,7 +266,6 @@ func (s *SrvCoreUserServiceServer) AdminInvokeUpdateDictItem(ctx context.Context
 	}
 	return s.dalCoreUserClient.UpdateDictItems(ctx, &core.DictItemsReq{UserId:userId, OrgId:orgId, Data:[]*core.DictItemEdit{req.Item}})
 }
-
 func (s *SrvCoreUserServiceServer) AdminInvokeDeleteDictItem(ctx context.Context, req *core.IdReq) (*core.Empty, error) {
 	userId, orgId, err := s.auth.CheckAuthority(ctx, "P_SUPER_ADMIN")
 	if err != nil {
@@ -247,38 +273,91 @@ func (s *SrvCoreUserServiceServer) AdminInvokeDeleteDictItem(ctx context.Context
 	}
 	return s.dalCoreUserClient.DeleteDictItems(ctx, &core.AuthorizedIdsReq{UserId:userId, OrgId:orgId, Ids:[]int64{req.Id}})
 }
-
 func (s *SrvCoreUserServiceServer) QueryDictTree(ctx context.Context, req *core.QueryDictTreeReq) (*core.DictItemList, error) {
 	userId, orgId := s.auth.GetAuthInfo(ctx)
-	return s.dalCoreUserClient.ReadDictItems(ctx, &core.ReadDictItemsReq{UserId:userId, OrgId:orgId, Ids:req.Ids, Pid:req.Pid})
+	return s.dalCoreUserClient.ReadDictItems(ctx, &core.ReadDictItemsReq{UserId:userId, OrgId:orgId,
+		Ids:req.Ids, Pid:req.Pid, Status:req.Status})
 }
-
-func (s *SrvCoreUserServiceServer) InvokeFollowUser(ctx context.Context, req *core.IdReq) (*core.Empty, error) {
+// ===================================================== Feedback
+func (s *SrvCoreUserServiceServer) InvokeUpdateFeedback(ctx context.Context, req *core.FeedbackEdit) (*core.Empty, error) {
 	userId, orgId := s.auth.GetAuthInfo(ctx)
 	if userId == 0 {
 		return nil, status.Error(codes.Unauthenticated, "")
 	}
-	if userId == req.Id {
-		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:id: cannot follow yourself")
+	req.UserId = userId
+	return s.dalCoreUserClient.UpdateFeedback(ctx, &core.FeedbackReq{UserId:userId, OrgId:orgId,
+		Item:req,
+		})
+}
+func (s *SrvCoreUserServiceServer) QueryFeedback(ctx context.Context, req *core.QueryFeedbackReq) (*core.FeedbackList, error) {
+	userId, orgId, err := s.auth.CheckAuthority(ctx, "P_SUPER_ADMIN")
+	if err != nil {
+		return nil, err
 	}
-	return s.dalCoreUserClient.CreateSimpleRelation(ctx, &core.SimpleRelationReq{UserId:userId, OrgId:orgId,
-		Type:core.RelationType_RELATION_SIMPLE_USER_FOLLOW,
-		QueryUserId:userId,
-		ToId:req.Id,
+	return s.dalCoreUserClient.ReadFeedback(ctx, &core.ReadFeedbackReq{UserId:userId, OrgId:orgId,
+		Status:req.Status,
 		})
 }
 
-func (s *SrvCoreUserServiceServer) InvokeBlockUser(ctx context.Context, req *core.IdReq) (*core.Empty, error) {
+func (s *SrvCoreUserServiceServer) InvokeNewMessage(ctx context.Context, req *core.MessageEdit) (*core.Empty, error) {
+	userId, orgId, err := s.auth.CheckAuthority(ctx, "P_SUPER_ADMIN")
+	switch req.Type {
+	case core.MessageType_MESSAGE_TYPE_ALL: {
+		if err != nil {
+			return nil, err
+		}
+		return s.dalCoreUserClient.UpdateMessage(ctx, &core.MessageReq{UserId:userId, OrgId:orgId,
+			Msg:req,
+		})
+	}
+	}
+
+	return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:type")
+}
+
+func (s *SrvCoreUserServiceServer) QueryMessages(ctx context.Context, req *core.QueryMessagesReq) (*core.MessageList, error) {
 	userId, orgId := s.auth.GetAuthInfo(ctx)
 	if userId == 0 {
 		return nil, status.Error(codes.Unauthenticated, "")
 	}
-	if userId == req.Id {
-		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:id: cannot block yourself")
+	return s.dalCoreUserClient.ReadMessages(ctx, &core.ReadMessagesReq{UserId:userId, OrgId:orgId,
+		FromUserId:userId, Pagination:req.Pagination,
+		})
+}
+
+func (s *SrvCoreUserServiceServer) QueryInbox(ctx context.Context, req *core.PaginationReq) (*core.MessageList, error) {
+	userId, orgId := s.auth.GetAuthInfo(ctx)
+	if userId == 0 {
+		return nil, status.Error(codes.Unauthenticated, "")
 	}
-	return s.dalCoreUserClient.CreateSimpleRelation(ctx, &core.SimpleRelationReq{UserId:userId, OrgId:orgId,
-		Type:core.RelationType_RELATION_SIMPLE_USER_BLACKLIST,
-		QueryUserId:userId,
-		ToId:req.Id,
-	})
+	return s.dalCoreUserClient.ReadInbox(ctx, &core.ReadInboxReq{UserId:userId, OrgId:orgId,
+		QueryUserId:userId, Pagination:req.Pagination,
+		})
+}
+
+func (s *SrvCoreUserServiceServer) DeleteInbox(ctx context.Context, req *core.StringReq) (*core.Empty, error) {
+	userId, orgId := s.auth.GetAuthInfo(ctx)
+	if userId == 0 {
+		return nil, status.Error(codes.Unauthenticated, "")
+	}
+	idStrs := strings.Split(req.Query, ",")
+	ids := make([]int64, len(idStrs))
+	var err error
+	for i, v := range idStrs {
+		ids[i], err = strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return s.dalCoreUserClient.DeleteInbox(ctx, &core.UpdateInboxReq{UserId:userId, OrgId:orgId, Ids:ids})
+}
+
+func (s *SrvCoreUserServiceServer) InvokeSetReadInbox(ctx context.Context, req *core.IdReq) (*core.Empty, error) {
+	userId, orgId := s.auth.GetAuthInfo(ctx)
+	if userId == 0 {
+		return nil, status.Error(codes.Unauthenticated, "")
+	}
+	return s.dalCoreUserClient.UpdateInbox(ctx, &core.UpdateInboxReq{UserId:userId, OrgId:orgId,
+		Ids:[]int64{req.Id}, Status:core.EntityStatus_ENTITY_STATUS_DONE,
+		})
 }
