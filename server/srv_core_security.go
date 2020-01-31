@@ -2,17 +2,16 @@ package server
 
 import (
 	"context"
-	"github.com/bootapp/srv-core/oauth"
-	core "github.com/bootapp/srv-core/proto"
-	"github.com/bootapp/srv-core/settings"
-	"github.com/bootapp/srv-core/utils"
 	"github.com/golang/glog"
-	"github.com/golang/protobuf/ptypes/wrappers"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gopkg.in/gomail.v2"
 	"log"
+	"srv-core/oauth"
+	core "srv-core/proto"
+	"srv-core/settings"
+	"srv-core/utils"
 	"strings"
 )
 
@@ -68,7 +67,7 @@ func (s *SrvCoreSecurityServiceServer) Cipher(ctx context.Context, req *core.Cip
 }
 func (s *SrvCoreSecurityServiceServer) SendPhoneCode(ctx context.Context, req *core.SmsReq) (*core.Empty, error) {
 	userReq := &core.User{}
-	userReq.Phone = &wrappers.StringValue{Value:req.Phone}
+	userReq.Phone = req.Phone
 	phoneExists := false
 	_, err := s.dalCoreUserClient.VerifyUniqueUser(ctx, userReq)
 	if err != nil {
@@ -90,6 +89,7 @@ func (s *SrvCoreSecurityServiceServer) SendPhoneCode(ctx context.Context, req *c
 	} else if req.Type == core.SmsType_SMS_CODE_REGISTER && phoneExists {
 		return nil, status.Error(codes.AlreadyExists, "ALREADY_EXISTS")
 	}
+
 	text := utils.GenCode(6)
 	err = utils.SetKey(req.Type.String() + req.Phone, text, settings.SmsRedisExireTime)
 	if err != nil {

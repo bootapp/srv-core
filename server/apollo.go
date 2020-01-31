@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/bootapp/rest-grpc-oauth2/auth"
-	"github.com/bootapp/srv-core/oauth"
-	"github.com/bootapp/srv-core/settings"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/glog"
 	"github.com/shima-park/agollo"
 	"os"
+	"srv-core/oauth"
+	"srv-core/settings"
 )
 type ConfigYml struct {
 	oauth struct {

@@ -6,18 +6,19 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"github.com/bootapp/rest-grpc-oauth2/auth"
-	"github.com/bootapp/srv-core/oauth"
-	core "github.com/bootapp/srv-core/proto"
-	"github.com/bootapp/srv-core/settings"
-	"github.com/bootapp/srv-core/utils"
 	"github.com/golang/glog"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"log"
+	"srv-core/oauth"
+	core "srv-core/proto"
+	"srv-core/settings"
+	"srv-core/utils"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type SrvCoreUserServiceServer struct {
@@ -48,15 +49,25 @@ func (s *SrvCoreUserServiceServer) close() {
 }
 // ===================================================== User actions
 func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.RegisterReq) (*core.LoginResp, error) {
+	ipStr := s.auth.GetRemoteAddr(ctx)
+	var ip int32 = 0
+	if !strings.Contains(ipStr, "[") && strings.Contains(ipStr, ":"){
+		ipStr = strings.Split(ipStr, ":")[0]
+		ip = utils.StringIpToInt(ipStr)
+	}
 	glog.Info("registering new user...")
-	user := &core.User{}
+	if req.Key == "" {
+		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:key")
+	}
+	user := &core.UserEdit{}
+	user.RegIp = &wrappers.Int32Value{Value:ip}
 	resp := &core.LoginResp{}
 
 	// ------------ decode base64
 	if req.Secret != "" {
 		decoded, err := base64.StdEncoding.DecodeString(req.Secret)
 		if err != nil {
-			return nil, err
+			return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:secret")
 		}
 		req.Secret = string(decoded)
 	}
@@ -98,7 +109,7 @@ func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.Regis
 				switch kv[0] {
 				case "email":
 					_, err := s.dalCoreUserClient.UpdateUser(ctx, &core.UpdateUserReq{Type:core.UpdateUserType_UPDATE_USER_TYPE_EMAIL,
-						User:&core.User{
+						User:&core.UserEdit{
 							Email:&wrappers.StringValue{Value:kv[1]},
 							Password:&wrappers.StringValue{Value:req.Secret},
 							Status:core.EntityStatus_ENTITY_STATUS_NORMAL,
@@ -106,7 +117,7 @@ func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.Regis
 					if err != nil {
 						return nil, err
 					}
-					userRes, err := s.dalCoreUserClient.ReadUserAuth(ctx, &core.ReadUserReq{User:&core.User{Email:&wrappers.StringValue{Value:kv[1]}}})
+					userRes, err := s.dalCoreUserClient.ReadUserAuth(ctx, &core.ReadUserReq{Email:kv[1]})
 					if err != nil {
 						return nil, err
 					}
@@ -129,6 +140,12 @@ func (s *SrvCoreUserServiceServer) Register(ctx context.Context, req *core.Regis
 	return resp, nil
 }
 func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *core.LoginReq) (*core.LoginResp, error) {
+	ipStr := s.auth.GetRemoteAddr(ctx)
+	var ip int32 = 0
+	if !strings.Contains(ipStr, "[") && strings.Contains(ipStr, ":"){
+		ipStr = strings.Split(ipStr, ":")[0]
+		ip = utils.StringIpToInt(ipStr)
+	}
 	glog.Info("user logging in...")
 	resp := &core.LoginResp{}
 
@@ -177,14 +194,24 @@ func (s *SrvCoreUserServiceServer) Login(ctx context.Context, req *core.LoginReq
 		glog.Error(err)
 		return nil, err
 	}
-	userReq := &core.ReadUserReq{User: &core.User{Id: userId, OrgId:req.OrgId}}
+	userReq := &core.ReadUserReq{Id: userId, OrgId:req.OrgId}
 	qResp, err := s.dalCoreUserClient.ReadUserAuth(ctx, userReq)
 	if err != nil {
 		glog.Error(err)
 		return nil, err
 	}
+	if qResp.User.Status == core.EntityStatus_ENTITY_STATUS_FROZEN {
+		return nil, status.Error(codes.PermissionDenied, "FROZEN")
+	}
 	resp.User = qResp.User
 	resp.OrgInfo = qResp.OrgInfo
+	resp.User.LastLoginIp = ip
+	resp.User.LastLoginTime = time.Now().UnixNano()/1e6
+	_, _ = s.dalCoreUserClient.UpdateUser(ctx, &core.UpdateUserReq{
+		Type:core.UpdateUserType_UPDATE_USER_TYPE_ID,
+		User:&core.UserEdit{Id:qResp.User.Id, LastLoginIp:&wrappers.Int32Value{Value:ip},
+		LastLoginTime: &wrappers.Int64Value{Value:resp.User.LastLoginTime},
+	}})
 	return resp, nil
 }
 func (s *SrvCoreUserServiceServer) Refresh(ctx context.Context, req *core.RefreshReq) (*core.RefreshResp, error) {
@@ -198,7 +225,6 @@ func (s *SrvCoreUserServiceServer) Refresh(ctx context.Context, req *core.Refres
 	return &core.RefreshResp{AccessToken:at, RefreshToken:rt}, nil
 }
 func (s *SrvCoreUserServiceServer) ResetPassword(ctx context.Context, req *core.ResetPasswordReq) (*core.Empty, error) {
-
 	// ------------ decode base64
 	if req.Secret != "" {
 		decoded, err := base64.StdEncoding.DecodeString(req.Secret)
@@ -219,7 +245,7 @@ func (s *SrvCoreUserServiceServer) ResetPassword(ctx context.Context, req *core.
 			return nil, status.Error(codes.InvalidArgument, "INVALID_CODE")
 		}
 		updateUserReq.Type = core.UpdateUserType_UPDATE_USER_TYPE_PHONE
-		updateUserReq.User = &core.User{Phone:&wrappers.StringValue{Value:req.Key}, Password:&wrappers.StringValue{Value:req.Secret}}
+		updateUserReq.User = &core.UserEdit{Phone:&wrappers.StringValue{Value:req.Key}, Password:&wrappers.StringValue{Value:req.Secret}}
 	}
 	_, err := s.dalCoreUserClient.UpdateUser(ctx, updateUserReq)
 	if err != nil {
@@ -240,23 +266,21 @@ func (s *SrvCoreUserServiceServer) UserInfo(ctx context.Context, req *core.Empty
 }
 // ===================================================== User managements
 func (s *SrvCoreUserServiceServer) QueryUsers(ctx context.Context, req *core.QueryUsersReq) (*core.UsersResp, error) {
-	if req.User == nil {
-		return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:user")
-	}
-	userId, orgId := s.auth.GetAuthInfo(ctx)
-	if orgId != req.User.OrgId {
-		return nil, status.Error(codes.PermissionDenied, "PERMISSION_DENIED")
-	}
-	usersReq := &core.ReadUsersReq{UserId:userId, OrgId:orgId, User:req.User, Pagination:req.Pagination}
-	return s.dalCoreUserClient.ReadUsers(ctx, usersReq)
-}
-func (s *SrvCoreUserServiceServer) AdminQueryUsers(ctx context.Context, req *core.QueryUsersReq) (*core.UsersResp, error) {
 	userId, orgId, err := s.auth.CheckAuthority(ctx, "P_SYS_USER_R")
 	if err != nil {
 		return nil, err
 	}
-	usersReq := &core.ReadUsersReq{UserId:userId, OrgId:orgId, User:req.User, Pagination:req.Pagination}
+	usersReq := &core.ReadUsersReq{UserId:userId, OrgId:orgId,
+		Email:req.Email, Username:req.Username, Phone: req.Phone,
+		Pagination:req.Pagination}
 	return s.dalCoreUserClient.ReadUsers(ctx, usersReq)
+}
+func (s *SrvCoreUserServiceServer) UpdateUser(ctx context.Context, req *core.UserEdit) (*core.Empty, error) {
+	userId, orgId, err := s.auth.CheckAuthority(ctx, "P_SYS_USER_W")
+	if err != nil {
+		return nil, err
+	}
+	return s.dalCoreUserClient.UpdateUser(ctx, &core.UpdateUserReq{UserId:userId, OrgId:orgId, User:req})
 }
 // ===================================================== DictTree
 func (s *SrvCoreUserServiceServer) AdminInvokeUpdateDictItem(ctx context.Context, req *core.InvokeUpdateDictReq) (*core.Empty, error) {
@@ -276,15 +300,37 @@ func (s *SrvCoreUserServiceServer) AdminInvokeDeleteDictItem(ctx context.Context
 func (s *SrvCoreUserServiceServer) QueryDictTree(ctx context.Context, req *core.QueryDictTreeReq) (*core.DictItemList, error) {
 	userId, orgId := s.auth.GetAuthInfo(ctx)
 	return s.dalCoreUserClient.ReadDictItems(ctx, &core.ReadDictItemsReq{UserId:userId, OrgId:orgId,
-		Ids:req.Ids, Pid:req.Pid, Status:req.Status})
+		Ids:req.Ids, Pid:req.Pid, Status:req.Status, Pagination:req.Pagination})
 }
 // ===================================================== Feedback
 func (s *SrvCoreUserServiceServer) InvokeUpdateFeedback(ctx context.Context, req *core.FeedbackEdit) (*core.Empty, error) {
-	userId, orgId := s.auth.GetAuthInfo(ctx)
+	userId, orgId, err := s.auth.CheckAuthority(ctx, "P_SUPER_ADMIN")
 	if userId == 0 {
 		return nil, status.Error(codes.Unauthenticated, "")
 	}
-	req.UserId = userId
+	if err != nil {
+		if req.Status == core.EntityStatus_ENTITY_STATUS_DONE {
+			return nil, status.Error(codes.PermissionDenied, "")
+		}
+		if req.Reply != nil {
+			return nil, status.Error(codes.PermissionDenied, "")
+		}
+		if req.Id != 0 {
+			resp, err := s.dalCoreUserClient.ReadFeedback(ctx, &core.ReadFeedbackReq{UserId:userId, OrgId:orgId,
+				Id:req.Id,
+				})
+			if err != nil {
+				return nil, err
+			}
+			if len(resp.Data) != 1 {
+				return nil, status.Error(codes.NotFound, "")
+			}
+			if resp.Data[0].UserId != userId {
+				return nil, status.Error(codes.PermissionDenied, "")
+			}
+		}
+		req.UserId = userId
+	}
 	return s.dalCoreUserClient.UpdateFeedback(ctx, &core.FeedbackReq{UserId:userId, OrgId:orgId,
 		Item:req,
 		})
@@ -298,7 +344,6 @@ func (s *SrvCoreUserServiceServer) QueryFeedback(ctx context.Context, req *core.
 		Status:req.Status,
 		})
 }
-
 func (s *SrvCoreUserServiceServer) InvokeNewMessage(ctx context.Context, req *core.MessageEdit) (*core.Empty, error) {
 	userId, orgId, err := s.auth.CheckAuthority(ctx, "P_SUPER_ADMIN")
 	switch req.Type {
@@ -314,7 +359,6 @@ func (s *SrvCoreUserServiceServer) InvokeNewMessage(ctx context.Context, req *co
 
 	return nil, status.Error(codes.InvalidArgument, "INVALID_ARG:type")
 }
-
 func (s *SrvCoreUserServiceServer) QueryMessages(ctx context.Context, req *core.QueryMessagesReq) (*core.MessageList, error) {
 	userId, orgId := s.auth.GetAuthInfo(ctx)
 	if userId == 0 {
@@ -324,7 +368,6 @@ func (s *SrvCoreUserServiceServer) QueryMessages(ctx context.Context, req *core.
 		FromUserId:userId, Pagination:req.Pagination,
 		})
 }
-
 func (s *SrvCoreUserServiceServer) QueryInbox(ctx context.Context, req *core.PaginationReq) (*core.MessageList, error) {
 	userId, orgId := s.auth.GetAuthInfo(ctx)
 	if userId == 0 {
@@ -334,7 +377,6 @@ func (s *SrvCoreUserServiceServer) QueryInbox(ctx context.Context, req *core.Pag
 		QueryUserId:userId, Pagination:req.Pagination,
 		})
 }
-
 func (s *SrvCoreUserServiceServer) DeleteInbox(ctx context.Context, req *core.StringReq) (*core.Empty, error) {
 	userId, orgId := s.auth.GetAuthInfo(ctx)
 	if userId == 0 {

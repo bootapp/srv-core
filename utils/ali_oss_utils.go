@@ -6,10 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	core "github.com/bootapp/srv-core/proto"
-	"github.com/bootapp/srv-core/settings"
+	"srv-core/settings"
 	"hash"
 	"io"
+	core "srv-core/proto"
 	"time"
 )
 

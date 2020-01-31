@@ -3,11 +3,11 @@ package server
 import (
 	"context"
 	"github.com/bootapp/rest-grpc-oauth2/auth"
-	core "github.com/bootapp/srv-core/proto"
-	"github.com/bootapp/srv-core/utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	core "srv-core/proto"
+	"srv-core/utils"
 )
 
 type SrvCoreDataStoreServiceServer struct {
@@ -37,6 +37,8 @@ func (s *SrvCoreDataStoreServiceServer) QueryUploadToken(ctx context.Context, re
 		token = utils.GetPolicyToken("profiles/", false)
 	case core.FileDirType_FILE_TYPE_INSTITUTE_LOGO:
 		token = utils.GetPolicyToken("logos/", false)
+	case core.FileDirType_FILE_TYPE_TIMETABLE:
+		token = utils.GetPolicyToken("timetables/", false)
 	}
 	return &core.UploadTokenResp{Token:token}, nil
 }

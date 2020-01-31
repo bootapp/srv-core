@@ -5,14 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/bootapp/rest-grpc-oauth2/auth"
-	core "github.com/bootapp/srv-core/proto"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/glog"
-	"github.com/golang/protobuf/ptypes/wrappers"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net/http"
 	"regexp"
+	core "srv-core/proto"
 	"strconv"
 	"strings"
 )
@@ -53,30 +52,30 @@ func loginHandler(username, password, code, orgId, authType string) (userID int6
 	}
 	switch authType {
 	case "LOGIN_TYPE_USERNAME_PASS":
-		resp, err := dalCoreUserClient.ReadUserAuth(context.Background(), &core.ReadUserReq{User:&core.User{Username: &wrappers.StringValue{Value:username},
-			Password: &wrappers.StringValue{Value:password}, OrgId:orgIdNum}})
+		resp, err := dalCoreUserClient.ReadUserAuth(context.Background(), &core.ReadUserReq{Username:username,
+			Password: password, OrgId:orgIdNum})
 		if err != nil {
 			return 0, 0, nil, err
 		}
 		return procQueryUserResp(resp)
 	case "LOGIN_TYPE_EMAIL_PASS":
-		resp, err := dalCoreUserClient.ReadUserAuth(context.Background(), &core.ReadUserReq{User:&core.User{Email: &wrappers.StringValue{Value:username},
-			Password: &wrappers.StringValue{Value:password}, OrgId:orgIdNum}})
+		resp, err := dalCoreUserClient.ReadUserAuth(context.Background(), &core.ReadUserReq{Email:username,
+			Password: password, OrgId:orgIdNum})
 		if err != nil {
 			return 0, 0, nil, err
 		}
 		return procQueryUserResp(resp)
 	case "LOGIN_TYPE_PHONE_PASS":
-		resp, err := dalCoreUserClient.ReadUserAuth(context.Background(), &core.ReadUserReq{User:&core.User{Phone: &wrappers.StringValue{Value:username},
-			Password: &wrappers.StringValue{Value:password}, OrgId:orgIdNum}})
+		resp, err := dalCoreUserClient.ReadUserAuth(context.Background(), &core.ReadUserReq{Phone:username,
+			Password:password, OrgId:orgIdNum})
 		if err != nil {
 			return 0, 0, nil, err
 		}
 		return procQueryUserResp(resp)
 	case "LOGIN_TYPE_ANY_PASS":
 		resp, err := dalCoreUserClient.ReadUserAuth(context.Background(),
-			&core.ReadUserReq{User:&core.User{Phone: &wrappers.StringValue{Value:username}, Email: &wrappers.StringValue{Value:username},
-				Username:&wrappers.StringValue{Value:username}, Password: &wrappers.StringValue{Value:password}, OrgId:orgIdNum}})
+			&core.ReadUserReq{Phone:username, Email:username,
+				Username:username, Password:password, OrgId:orgIdNum})
 		if err != nil {
 			return 0, 0, nil, err
 		}
